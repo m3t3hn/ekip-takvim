@@ -1,0 +1,18 @@
+# Ekip Takvim. Set up .env first (docs/install.md), then:
+#   docker compose up -d --build
+services:
+  ekip-takvim:
+    build: .
+    image: ekip-takvim:local
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Only this machine can reach it: put your HTTPS reverse proxy in front
+      # (docs/access-control.md).
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./config:/app/config:ro   # optional config/app.yaml, re-read when it changes
+      - data:/app/data            # the database
+
+volumes:
+  data:

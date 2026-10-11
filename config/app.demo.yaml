@@ -1,0 +1,12 @@
+# Used by `npm run demo`. The made-up people, their calendars and busy times
+# aren't here: they're generated into a demo SQLite database on start (see
+# src/lib/server/demo.ts). Use "Sign in (demo)" to be one of them.
+timezone: Europe/Istanbul
+refresh_minutes: 1
+display_hours: { start: 6, end: 22 }
+working_hours: { timezone: Europe/Istanbul, start: 10, end: 18, days: [mon, tue, wed, thu, fri] }
+timezones:
+  - { label: UK, zone: Europe/London }
+  - { label: Europe, zone: Europe/Berlin }
+  - { label: Türkiye, zone: Europe/Istanbul }
+teams: [Design, Engineering, Product]
