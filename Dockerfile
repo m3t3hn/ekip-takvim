@@ -4,13 +4,13 @@
 # (patch releases still come in). node:sqlite needs 22.13 or newer.
 
 # ---- deps: install exactly what package-lock.json says
-FROM node:24.21-alpine AS deps
+FROM node:26.10-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # ---- build: Next.js standalone server
-FROM node:24.21-alpine AS build
+FROM node:26.10-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
@@ -18,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # ---- runtime: only the traced server files, run as a non-root user
-FROM node:24.21-alpine AS runtime
+FROM node:26.10-alpine AS runtime
 WORKDIR /app
 LABEL org.opencontainers.image.title="Ekip Takvim" \
       org.opencontainers.image.description="Who's free when, across everyone's calendars." \
