@@ -1,0 +1,14 @@
+# Try Ekip Takvim with made-up people, no Google account needed:
+#   docker compose -f compose.demo.yaml up --build
+# then open http://localhost:3000. Every start begins from scratch.
+name: ekip-takvim-demo
+services:
+  demo:
+    build: .
+    image: ekip-takvim:local
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DEMO_MODE: "true"
+      CONFIG_PATH: /app/config/app.demo.yaml
+      APP_URL: http://localhost:3000

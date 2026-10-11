@@ -1,0 +1,49 @@
+# Ekip Takvim config. Everything here is optional, and the app runs on the
+# defaults without this file. Copy it to config/app.yaml, then uncomment and
+# edit what you need. The app re-reads the file when it changes: no restart.
+# Reference: docs/configuration.md
+#
+# Only company-wide settings live here. People add themselves by signing in
+# with Google, and pick their own team, time zone and calendars.
+
+# The team's time zone. Working hours are in it, and new people start in it
+# when their Google Calendar doesn't say. Viewers always see times in their
+# own browser's zone. Default: TZ, else UTC.
+# timezone: Europe/Istanbul
+
+# Company working hours, in their own time zone. Outside them the calendar is
+# hatched and free time isn't searched, unless someone turns on "Show
+# off-hours". Fractions work: 9.5 is 09:30. Default: 9 to 17, Monday to Friday.
+# working_hours:
+#   timezone: Europe/Istanbul   # default: `timezone`
+#   start: 9
+#   end: 17
+#   days: [mon, tue, wed, thu, fri]
+
+# Clocks in the sidebar and extra hour columns in the day view, up to 6.
+# A viewer whose zone isn't listed gets theirs added. Default: just `timezone`.
+# timezones:
+#   - { label: London, zone: Europe/London }
+#   - { label: Istanbul, zone: Europe/Istanbul }
+
+# Teams people can pick on their settings page; they group the sidebar.
+# Default: no teams.
+# teams: [Design, Engineering, Product]
+
+# Only Google accounts on this domain can sign in. Without it, anyone the
+# OAuth client lets in can sign in; an "Internal" client already limits that
+# to your Google Workspace.
+# google_domain: example.com
+
+# How often everyone's calendars are read from Google, in minutes. Default: 10.
+# refresh_minutes: 10
+
+# How many days ahead calendars are read. Default: 60.
+# horizon_days: 60
+
+# First and last hour of the day view, on the viewer's clock. Free time is
+# only searched inside them. Default: 8 to 22.
+# display_hours: { start: 8, end: 22 }
+
+# monday or sunday. Default: monday.
+# week_starts_on: monday

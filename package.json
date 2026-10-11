@@ -1,0 +1,48 @@
+{
+  "name": "ekip-takvim",
+  "version": "1.0.0",
+  "description": "Who's free when, across everyone's calendars. A self-hosted team availability calendar on top of Google Calendar.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m3t3hn/ekip-takvim.git"
+  },
+  "homepage": "https://github.com/m3t3hn/ekip-takvim#readme",
+  "bugs": "https://github.com/m3t3hn/ekip-takvim/issues",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
+    "lint": "eslint",
+    "test": "vitest run",
+    "typecheck": "next typegen && tsc --noEmit",
+    "demo": "node scripts/demo.mjs"
+  },
+  "dependencies": {
+    "@date-fns/tz": "^1.5.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "jose": "^6.2.12",
+    "lucide-react": "^1.52.0",
+    "next": "16.3.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24.19.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.8",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^5.0.3"
+  }
+}
