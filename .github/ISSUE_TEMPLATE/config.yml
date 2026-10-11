@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/m3t3hn/ekip-takvim/tree/main/docs#readme
+    about: Installing, Google setup, configuration and troubleshooting.
+  - name: Report a security problem
+    url: https://github.com/m3t3hn/ekip-takvim/security/advisories/new
+    about: Privately, so it can be fixed before it's public.

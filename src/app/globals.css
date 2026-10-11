@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+/* Ekip Takvim palette: neutral chrome, white working surface, indigo accent,
+   green reserved for "free". */
+:root {
+  --chrome: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f0f3;
+  --hover: #ebebf0;
+  --grid: #e5e5ea;
+  --grid-strong: #c9c9d2;
+  --fg: #1c1b22;
+  --fg-2: #46454f;
+  --fg-3: #6c6b77;
+  --accent: #5145cd;
+  --on-accent: #ffffff;
+  --accent-container: #e8e6fc;
+  --on-accent-container: #241a7a;
+  --free: #e2f5e9;
+  --free-border: #8fd4a8;
+  --free-strong: #1f9254;
+  --on-free: #11663a;
+  --offhours: #f8f8fa;
+  --offwork-a: #f0f0f4;
+  --offwork-b: #e6e6ed;
+  --now: #e5484d;
+  --warn: #b25e00;
+  --danger: #cd2b31;
+  --danger-container: #fdecec;
+  --snackbar: #2b2a33;
+  --on-snackbar: #f4f4f6;
+  --shadow-color: 28 27 34;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chrome: #121216;
+    --surface: #1b1b21;
+    --surface-2: #25252c;
+    --hover: #2e2e36;
+    --grid: #33333c;
+    --grid-strong: #4a4a55;
+    --fg: #ececf1;
+    --fg-2: #c6c6d0;
+    --fg-3: #9696a3;
+    --accent: #a59bff;
+    --on-accent: #17104f;
+    --accent-container: #322a7a;
+    --on-accent-container: #e8e6fc;
+    --free: #12331f;
+    --free-border: #2d7a4a;
+    --free-strong: #5fd38d;
+    --on-free: #9be6b8;
+    --offhours: #17171c;
+    --offwork-a: #141418;
+    --offwork-b: #1d1d24;
+    --now: #ff6b6f;
+    --warn: #f5b74e;
+    --danger: #ff7a7f;
+    --danger-container: #3d1a1c;
+    --snackbar: #ececf1;
+    --on-snackbar: #1c1b22;
+    --shadow-color: 0 0 0;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --chrome: #121216;
+  --surface: #1b1b21;
+  --surface-2: #25252c;
+  --hover: #2e2e36;
+  --grid: #33333c;
+  --grid-strong: #4a4a55;
+  --fg: #ececf1;
+  --fg-2: #c6c6d0;
+  --fg-3: #9696a3;
+  --accent: #a59bff;
+  --on-accent: #17104f;
+  --accent-container: #322a7a;
+  --on-accent-container: #e8e6fc;
+  --free: #12331f;
+  --free-border: #2d7a4a;
+  --free-strong: #5fd38d;
+  --on-free: #9be6b8;
+  --offhours: #17171c;
+  --offwork-a: #141418;
+  --offwork-b: #1d1d24;
+  --now: #ff6b6f;
+  --warn: #f5b74e;
+  --danger: #ff7a7f;
+  --danger-container: #3d1a1c;
+  --snackbar: #ececf1;
+  --on-snackbar: #1c1b22;
+  --shadow-color: 0 0 0;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-chrome: var(--chrome);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hover: var(--hover);
+  --color-grid: var(--grid);
+  --color-grid-strong: var(--grid-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-container: var(--accent-container);
+  --color-on-accent-container: var(--on-accent-container);
+  --color-free: var(--free);
+  --color-free-border: var(--free-border);
+  --color-free-strong: var(--free-strong);
+  --color-on-free: var(--on-free);
+  --color-offhours: var(--offhours);
+  --color-now: var(--now);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-danger-container: var(--danger-container);
+  --color-snackbar: var(--snackbar);
+  --color-on-snackbar: var(--on-snackbar);
+  --font-sans: var(--font-figtree), system-ui, sans-serif;
+  --font-body: var(--font-figtree), system-ui, sans-serif;
+  --shadow-card: 0 2px 6px rgb(var(--shadow-color) / 0.08), 0 12px 32px rgb(var(--shadow-color) / 0.16);
+  --shadow-raised: 0 1px 2px rgb(var(--shadow-color) / 0.12);
+}
+
+html,
+body {
+  background: var(--chrome);
+  color: var(--fg);
+}
+
+body {
+  font-feature-settings: "tnum" 1;
+}
+
+/* Person colours: --pc (the colour) and --pc-on (text on a solid fill) are
+   set inline per person, see colorStyle() in src/lib/colors.ts. */
+
+/* Busy blocks: a light tint with a solid edge, so text stays dark and easy
+   to read whatever the person's colour. */
+.event {
+  background: color-mix(in srgb, var(--pc) 15%, var(--surface));
+  border-left: 3px solid var(--pc);
+  color: color-mix(in srgb, var(--pc) 45%, var(--fg));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .event {
+    background: color-mix(in srgb, var(--pc) 26%, var(--surface));
+    color: color-mix(in srgb, var(--pc) 30%, var(--fg));
+  }
+}
+:root[data-theme="dark"] .event {
+  background: color-mix(in srgb, var(--pc) 26%, var(--surface));
+  color: color-mix(in srgb, var(--pc) 30%, var(--fg));
+}
+
+.event-tentative {
+  background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--pc) 12%, var(--surface)) 0 6px,
+      var(--surface) 6px 12px
+    );
+  border: 1.5px dashed var(--pc);
+  color: color-mix(in srgb, var(--pc) 45%, var(--fg));
+}
+
+.swatch { background: var(--pc); }
+
+.grid-hours {
+  background-image: linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: 100% var(--hour);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--grid-strong) transparent;
+}
+
+@keyframes shimmer {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+.shimmer { animation: shimmer 0.9s ease-in-out infinite alternate; }
+
+@keyframes pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.pop { animation: pop 0.14s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .pop { animation: none; }
+}
+
+/* Time grid gutter: one hour column per zone, only the viewer's on phones. */
+.time-grid {
+  --gutter: var(--gutter-one);
+}
+@media (min-width: 640px) {
+  .time-grid {
+    --gutter: var(--gutter-all);
+  }
+}
+
+/* Outside working hours: can't be selected until off-hours are shown. */
+.offwork {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--offwork-a) 0 6px,
+    var(--offwork-b) 6px 12px
+  );
+}
+
+/* A person whose free time we don't know: not white, so it can't read as free. */
+.nodata {
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--warn) 12%, var(--surface)) 0 6px,
+    var(--surface) 6px 12px
+  );
+}
