@@ -4,6 +4,12 @@ Notable changes to Ekip Takvim. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-01
+
+### Changed
+- **Shared free time stays empty on the day view.** It used to be a green block with a label, which read as someone's event. A green mark beside the hours, and the chips above the grid, now show when everyone is free; hovering the slot still highlights it, and clicking selects it.
+- **Off-hours are a flat light grey** instead of stripes, so they no longer outweigh free time. Stripes now mean only one thing: we don't know when this person is free.
+
 ## [1.0.0] - 2026-10-12
 
 First public release.
@@ -26,5 +32,6 @@ First public release.
 - **Demo mode** with made-up people.
 - **Backup and restore scripts.**
 
-[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/m3t3hn/ekip-takvim/releases/tag/v1.0.0
