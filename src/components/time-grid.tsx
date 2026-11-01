@@ -34,9 +34,9 @@ export type GridColumn = {
   header: ReactNode;
   events: GridEvent[];
   allDay: GridAllDay[];
-  /** Common free slots, drawn as green bands. */
+  /** Common free slots: left empty, marked in the hour gutter, clickable to select. */
   bands: Interval[];
-  /** Parts of the day that can be selected; the rest is hatched. null = all. */
+  /** Parts of the day that can be selected; the rest is shaded as off-hours. null = all. */
   selectable?: Interval[] | null;
   pending?: boolean;
   /** We don't know when this person is free; the column is hatched, never white. */
@@ -60,7 +60,6 @@ export function TimeGrid({
   selection,
   onSelect,
   selectAcross,
-  bandLabel,
   card,
   clickLength,
   scrollKey,
@@ -76,7 +75,6 @@ export function TimeGrid({
   selection: GridSelection | null;
   onSelect: (s: GridSelection | null) => void;
   selectAcross: boolean;
-  bandLabel: "first" | "all";
   card: ReactNode;
   clickLength: number;
   scrollKey: string;
@@ -107,6 +105,14 @@ export function TimeGrid({
   const gutterZones = [...zones.filter((z) => z.zone !== tz), ...zones.filter((z) => z.zone === tz)];
   const labelDay = columns[0]?.day;
   const hasAllDay = columns.some((c) => c.allDay.length > 0);
+  // Shared free time, marked in the gutter rather than drawn over the columns.
+  const freeMarks = (() => {
+    const first = columns[0];
+    if (!first?.bands.length) return [];
+    const base = dayStart(first.day, tz) + hours.start * HOUR;
+    const y = (t: number) => (Math.min(Math.max(t - base, 0), span * HOUR) / HOUR) * hourPx;
+    return first.bands.map(([s, e]) => ({ s, e, top: y(s), height: y(e) - y(s) }));
+  })();
 
   // The grid only covers the display hours; open at their start.
   useEffect(() => {
@@ -303,6 +309,14 @@ export function TimeGrid({
         {/* Body */}
         <div className="relative grid" style={{ gridTemplateColumns: template, height: span * hourPx }}>
           <div className="sticky left-0 z-20 bg-surface">
+            {freeMarks.map((m) => (
+              <span
+                key={`free-${m.s}`}
+                title={`Everyone free ${formatRange(m.s, m.e, tz)}`}
+                className="absolute right-1 w-1 rounded-full bg-free-strong"
+                style={{ top: m.top + 1, height: Math.max(m.height - 2, 4) }}
+              />
+            ))}
             {labelDay &&
               Array.from({ length: hours.end - hours.start - 1 }, (_, i) => hours.start + i + 1).map((h) => {
                 const at = zonedTime(labelDay, h, tz);
@@ -336,7 +350,6 @@ export function TimeGrid({
               now={now}
               isToday={c.day === today}
               showDot={ci === columns.findIndex((x) => x.day === today)}
-              showBandLabel={bandLabel === "all" || ci === 0}
               selection={
                 selection &&
                 selection.day === c.day &&
@@ -388,7 +401,6 @@ function Column({
   now,
   isToday,
   showDot,
-  showBandLabel,
   selection,
   ...handlers
 }: {
@@ -399,7 +411,6 @@ function Column({
   now: number;
   isToday: boolean;
   showDot: boolean;
-  showBandLabel: boolean;
   selection: { range: Interval; edgeLeft: boolean; edgeRight: boolean } | null;
   onPointerDown: (e: PointerEvent<HTMLDivElement>) => void;
   onPointerMove: (e: PointerEvent<HTMLDivElement>) => void;
@@ -440,27 +451,18 @@ function Column({
         />
       ))}
 
-      {column.bands.map(([s, e]) => {
-        const top = y(s);
-        const height = y(e) - top;
-        return (
-          <div
-            key={`band-${s}`}
-            data-band-start={s}
-            data-band-end={e}
-            title={`Everyone free ${formatRange(s, e, tz)} — click to select`}
-            className="absolute inset-x-0 cursor-pointer border-y border-free-border/60 bg-free hover:brightness-[0.97]"
-            style={{ top, height }}
-          >
-            {showBandLabel && height >= 22 && (
-              <div className="truncate px-2 pt-0.5 font-body text-[11px] font-medium text-on-free">
-                {height >= 36 ? "Everyone free" : formatRange(s, e, tz)}
-                {height >= 36 && <div className="font-normal opacity-90">{formatRange(s, e, tz)}</div>}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {/* Shared free time stays empty, as in any calendar, so it can't pass for an
+          event. The hour gutter marks it; here it only answers to hover and clicks. */}
+      {column.bands.map(([s, e]) => (
+        <div
+          key={`band-${s}`}
+          data-band-start={s}
+          data-band-end={e}
+          title={`Everyone free ${formatRange(s, e, tz)} — click to select`}
+          className="absolute inset-x-0 cursor-pointer hover:bg-free/60"
+          style={{ top: y(s), height: y(e) - y(s) }}
+        />
+      ))}
 
       {column.noData && !column.pending && <div aria-hidden className="nodata pointer-events-none absolute inset-0" />}
       {column.pending && <div className="shimmer pointer-events-none absolute inset-1 rounded-md bg-surface-2" />}

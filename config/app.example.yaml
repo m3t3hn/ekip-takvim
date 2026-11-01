@@ -12,7 +12,7 @@
 # timezone: Europe/Istanbul
 
 # Company working hours, in their own time zone. Outside them the calendar is
-# hatched and free time isn't searched, unless someone turns on "Show
+# shaded grey and free time isn't searched, unless someone turns on "Show
 # off-hours". Fractions work: 9.5 is 09:30. Default: 9 to 17, Monday to Friday.
 # working_hours:
 #   timezone: Europe/Istanbul   # default: `timezone`

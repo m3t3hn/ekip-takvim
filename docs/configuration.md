@@ -43,7 +43,7 @@ google_domain: example.com
 | Key | Default | What it does |
 |---|---|---|
 | `timezone` | `TZ`, else UTC | The team's time zone, as an IANA name like `Europe/Istanbul` or `America/New_York`. Working hours are in it, and new people start in it when their Google Calendar has no zone. |
-| `working_hours.start`, `working_hours.end` | `9`, `17` | Company hours, from 0 to 24. Fractions work: `9.5` is 09:30. Outside them the calendar is hatched as off-hours, and free time isn't searched there, unless someone turns on **Show off-hours**. |
+| `working_hours.start`, `working_hours.end` | `9`, `17` | Company hours, from 0 to 24. Fractions work: `9.5` is 09:30. Outside them the calendar is shaded grey as off-hours, and free time isn't searched there, unless someone turns on **Show off-hours**. |
 | `working_hours.days` | `[mon, tue, wed, thu, fri]` | Working days, from `mon` to `sun`. |
 | `working_hours.timezone` | `timezone` | Set it if the hours are kept in another zone. |
 | `timezones` | the team's zone | Up to 6 `{ label, zone }` pairs: the clocks in the sidebar and the extra hour columns in the day view. Labels can be up to 20 characters. A viewer whose own zone isn't listed sees it added. |

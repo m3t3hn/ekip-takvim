@@ -11,7 +11,7 @@ const STEPS = [
   },
   {
     title: "Green means everyone ticked is free",
-    body: "Green bands and chips are times when none of their calendars has anything. Click one to open it on the day view.",
+    body: "Green chips, and the green mark beside the hours on the day view, are times when none of their calendars has anything. Click a chip to open it on the day view.",
   },
   {
     title: "Check any time range",

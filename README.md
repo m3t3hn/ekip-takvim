@@ -17,7 +17,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/day-dark.png">
-  <img src="docs/screenshots/day-light.png" alt="The day view: one column per person, green bands where everyone is free, and a card showing who's free in the selected range">
+  <img src="docs/screenshots/day-light.png" alt="The day view: one column per person, the time everyone shares marked beside the hours, and a card showing who's free in the selected range">
 </picture>
 
 Many of us work more than one job, so "is Mert free on Thursday evening?" usually means asking around. With Ekip Takvim, everyone signs in once with their company Google account and shares their other calendars with it. From then on, the app answers that question for the whole team. *Ekip takvim* means "team calendar" in Turkish.
@@ -27,7 +27,7 @@ Many of us work more than one job, so "is Mert free on Thursday evening?" usuall
 
 ## Features
 
-- **Day, week and month views** of everyone's free time, with green where everyone is free.
+- **Day, week and month views** of everyone's free time, with the slots everyone shares marked at a glance.
 - **Find a time:** every gap that suits the whole team for as long as you need, plus slots that suit all but one person.
 - **Other jobs count too:** people share their other calendars with their company account and pick which ones count as busy time.
 - **Time zones done properly:** you see every time on your own clock, alongside each person's local time and fixed company working hours.

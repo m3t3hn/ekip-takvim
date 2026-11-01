@@ -167,7 +167,6 @@ export function DayView({
         selection={selection}
         onSelect={setSelection}
         selectAcross
-        bandLabel="first"
         clickLength={state.min * MINUTE}
         scrollKey={`day-${state.date}`}
         onOpenEvent={setOpenEvent}

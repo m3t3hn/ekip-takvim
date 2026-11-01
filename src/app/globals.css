@@ -21,8 +21,7 @@
   --free-strong: #1f9254;
   --on-free: #11663a;
   --offhours: #f8f8fa;
-  --offwork-a: #f0f0f4;
-  --offwork-b: #e6e6ed;
+  --offwork: #f4f4f7;
   --now: #e5484d;
   --warn: #b25e00;
   --danger: #cd2b31;
@@ -53,8 +52,7 @@
     --free-strong: #5fd38d;
     --on-free: #9be6b8;
     --offhours: #17171c;
-    --offwork-a: #141418;
-    --offwork-b: #1d1d24;
+    --offwork: #131317;
     --now: #ff6b6f;
     --warn: #f5b74e;
     --danger: #ff7a7f;
@@ -85,8 +83,7 @@
   --free-strong: #5fd38d;
   --on-free: #9be6b8;
   --offhours: #17171c;
-  --offwork-a: #141418;
-  --offwork-b: #1d1d24;
+  --offwork: #131317;
   --now: #ff6b6f;
   --warn: #f5b74e;
   --danger: #ff7a7f;
@@ -207,13 +204,10 @@ body {
   }
 }
 
-/* Outside working hours: can't be selected until off-hours are shown. */
+/* Outside working hours: a quiet flat shade, so it doesn't outshout free time.
+   Can't be selected until off-hours are shown. Stripes are kept for .nodata. */
 .offwork {
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--offwork-a) 0 6px,
-    var(--offwork-b) 6px 12px
-  );
+  background: var(--offwork);
 }
 
 /* A person whose free time we don't know: not white, so it can't read as free. */

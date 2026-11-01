@@ -23,7 +23,7 @@
 
 ## The views
 
-- **Day:** everyone side by side, one column each. Green bands mark when everyone you've ticked is free.
+- **Day:** everyone side by side, one column each. Free time stays empty. A green mark beside the hours, and the chips above the grid, show when everyone you've ticked is free.
 - **Week:** seven big day boxes. Each lists, as plain text, when every person is free, which job they're at, and the slots everyone shares.
 - **Month:** each day shows each person's free hours ("6h free", "Busy", "Off") and how much time everyone has together.
 - **Find a time:** every gap where everyone is free for at least the length you choose, over the next 3 to 30 days. *Almost works* lists slots that suit everyone but one person.
@@ -71,7 +71,7 @@ You're free when none of your ticked calendars has an event at that time.
 
 ## Working hours and time zones
 
-- **Working hours:** only company working hours can be picked or searched. The rest of the day is hatched as off-hours. **Show off-hours** in the sidebar (or `o`) opens them up, when someone needs an evening or weekend slot.
+- **Working hours:** only company working hours can be picked or searched. The rest of the day is shaded grey as off-hours. **Show off-hours** in the sidebar (or `o`) opens them up, when someone needs an evening or weekend slot.
 - **Your zone:** every time is shown in your own zone. The sidebar has a clock for each of the team's zones, with yours marked **You**. Click another clock to see the calendar on its time.
 - **Others' local time:** each person's local time shows next to their name. The selection card and the invite dialog say what a slot is on their clock, e.g. "15:00–16:00 UK for them".
 
