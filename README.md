@@ -58,7 +58,8 @@ Then open http://localhost:3000. With Node.js 22.13 or newer, `npm ci && npm run
 You need Docker, a [Google OAuth client](docs/google-setup.md), and an HTTPS address behind your [access layer](docs/access-control.md).
 
 ```bash
-git clone --branch v1.0.0 https://github.com/m3t3hn/ekip-takvim.git && cd ekip-takvim
+git clone https://github.com/m3t3hn/ekip-takvim.git && cd ekip-takvim
+git checkout "$(git describe --tags --abbrev=0)"   # the latest release
 cp .env.example .env    # set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET and APP_URL
 docker compose up -d --build
 ```

@@ -13,9 +13,9 @@ cd /srv/ekip-takvim     # where you cloned it
 # 1. Back up first
 docker compose exec -T ekip-takvim node scripts/backup-db.mjs - > before-upgrade.sqlite
 
-# 2. Switch to the new release
+# 2. Switch to the latest release (or name one: git checkout v1.1.0)
 git fetch --tags
-git checkout v1.1.0
+git checkout "$(git describe --tags --abbrev=0 origin/main)"
 
 # 3. Rebuild and restart
 docker compose up -d --build

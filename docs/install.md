@@ -13,8 +13,9 @@ Just want to look around first? [Try the demo](#try-the-demo).
 
 1. **Get the code** at the latest release:
    ```bash
-   git clone --branch v1.0.0 https://github.com/m3t3hn/ekip-takvim.git
+   git clone https://github.com/m3t3hn/ekip-takvim.git
    cd ekip-takvim
+   git checkout "$(git describe --tags --abbrev=0)"   # the latest release
    ```
 2. **Create the Google OAuth client** as in [Google setup](google-setup.md), with the redirect URI `https://calendar.example.com/auth/google/callback` (your address).
 3. **Create `.env`** and fill in the four required values:
