@@ -16,6 +16,7 @@ import {
   type UserRow,
 } from "./db";
 import { seedDemo } from "./demo";
+import { exposureProblem, exposureSetting } from "./exposure";
 import { GoogleError, accessToken, eventBusy, freeBusy, listCalendars as googleCalendars } from "./google";
 import { decrypt, googleConfigured, isDemo } from "./secrets";
 import { DAY, addDays, dayKeyOf, dayStart } from "@/lib/time";
@@ -70,7 +71,13 @@ function refreshConfig(): void {
   if (version === state.configVersion && (state.config || state.configError)) return;
   state.configVersion = version;
   try {
-    state.config = loadConfig();
+    const config = loadConfig();
+    // An exposed app that any Google account could sign in to, or that sends
+    // its session cookie over plain http, doesn't serve anything.
+    const problem =
+      exposureSetting() === "exposed" && !isDemo() ? exposureProblem(config.googleDomain, process.env.APP_URL) : null;
+    if (problem) throw new ConfigError(problem);
+    state.config = config;
     state.configError = null;
     log("info", "config loaded", { teams: state.config.teams.length });
   } catch (err) {
@@ -224,6 +231,7 @@ export function ensureStarted(): void {
     config: configSource(),
     signIn: isDemo() ? "demo" : googleConfigured() ? "google" : "not set up (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET)",
     access: accessChecks(),
+    exposure: exposureSetting(),
   });
   void syncNow().then(schedule);
 }
@@ -233,6 +241,7 @@ function accessChecks(): string {
   const on = [
     process.env.CF_ACCESS_TEAM_DOMAIN || process.env.CF_ACCESS_AUD ? "Cloudflare Access" : null,
     process.env.BASIC_AUTH_USER || process.env.BASIC_AUTH_PASSWORD ? "basic auth" : null,
+    exposureSetting() === "exposed" ? "sign-in for everything (EXPOSURE=exposed)" : null,
   ].filter(Boolean);
   return on.length ? on.join(", ") : "none: keep the app behind a VPN or an access proxy";
 }

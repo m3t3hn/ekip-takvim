@@ -5,7 +5,7 @@ Ekip Takvim is one container with a SQLite database inside a Docker volume. To r
 - **A server with Docker and Docker Compose:** any small Linux machine, amd64 or arm64. Half a gigabyte of RAM is plenty.
 - **A Google OAuth client.** Creating one takes about ten minutes: see [Google setup](google-setup.md).
 - **An HTTPS address for the app,** such as `calendar.example.com`, served through a reverse proxy. Google only sends people back to `https://` addresses, apart from `http://localhost`.
-- **A way to keep the app to your team:** a VPN, Cloudflare Access or basic auth. Anyone who can open the app can see everyone's busy times without signing in. See [access control](access-control.md).
+- **A way to keep the app to your team:** a VPN, Cloudflare Access or basic auth, or `EXPOSURE=exposed` so every page needs a company sign-in. Otherwise anyone who can open the app can see everyone's busy times. See [access control](access-control.md).
 
 Just want to look around first? [Try the demo](#try-the-demo).
 

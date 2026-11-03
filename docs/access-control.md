@@ -1,15 +1,26 @@
 # Access control
 
-Ekip Takvim shows everyone's busy times to anyone who can open it, without signing in. That's on purpose: checking who's free shouldn't need a login. Signing in is for adding yourself, and for seeing the titles of colleagues' company-calendar events. So the address must be reachable only by your team. Pick one of these:
+By default (`EXPOSURE=internal`), Ekip Takvim shows everyone's busy times to anyone who can open it, without signing in: checking who's free shouldn't need a login. Signing in is for adding yourself, and for seeing the titles of colleagues' company-calendar events. So the address must be reachable only by your team. Pick one of these:
 
 | Option | Good for | What it takes |
 |---|---|---|
+| [Exposed](#exposed-sign-in-for-everything) (`EXPOSURE=exposed`) | Using it from anywhere, with nothing in front of it | One setting: every page then needs a company Google sign-in |
 | [VPN](#vpn) | Teams that already have one | A hostname that only resolves on the VPN |
 | [Cloudflare Access](#cloudflare-access) | Using it from anywhere, phones included, behind your company login | A domain on Cloudflare |
 | [Basic auth](#basic-auth) | Small teams with neither | Two settings, and one shared password |
 | Your own access proxy | Teams that already run oauth2-proxy, Authelia, Authentik, Pomerium or Tailscale | Put it in front, like any other app |
 
 Whichever you pick, the app needs HTTPS: Google only sends people back to `https://` addresses, apart from `http://localhost`. Set `APP_URL` to that address.
+
+## Exposed: sign-in for everything
+
+Set `EXPOSURE=exposed` in `.env` and run `docker compose up -d`. The app can then sit on the open internet:
+
+- **Signing in:** Every page needs a sign-in with a company Google account. People who aren't signed in land on a sign-in page, and the API answers `401`. Only the sign-in routes, `/healthz`, the icons and the manifest stay open.
+- **Joining:** Signing in also asks for read access to the person's calendars. Anyone who signs in to look joins the team calendar; that's the point, but say so when you invite people.
+- **Requirements:** `google_domain` must be set in `config/app.yaml`, and `APP_URL` must be `https://` (`http://localhost` is allowed for trying it out). Without them the app serves nothing and logs why, so no account from another domain can get in, and the session cookie never travels in the clear.
+
+The app sends the usual hardening headers on every response: HSTS, no framing by other sites, `nosniff` and a strict referrer policy. With an *Internal* OAuth client ([Google setup](google-setup.md)), Google itself also keeps out accounts outside your Workspace.
 
 ## Reverse proxy
 

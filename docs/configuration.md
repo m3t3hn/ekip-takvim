@@ -20,6 +20,7 @@ People aren't configured anywhere. Everyone adds themselves by signing in with G
 | `CONFIG_YAML` | | The whole YAML config inline. It wins over the file. |
 | `DATABASE_PATH` | `data/ekip-takvim.sqlite` (`/app/data/ekip-takvim.sqlite` in Docker) | The SQLite database. Keep it on a volume. |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | | Turn on the [Cloudflare Access check](access-control.md#cloudflare-access). Set both or neither: with only one set, every request gets a `500`. |
+| `EXPOSURE` | `internal` | `internal`: the app is only reachable from your network or VPN, and viewing needs no sign-in. `exposed`: it's reachable from the internet, and every page needs a company sign-in; needs `google_domain` and an https `APP_URL`. See [access control](access-control.md#exposed-sign-in-for-everything). Any other value gets a `500`. |
 | `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD` | | Turn on [basic auth](access-control.md#basic-auth). Set both or neither: with only one set, every request gets a `500`. |
 | `PORT`, `HOSTNAME` | `3000`, `0.0.0.0` | Where the server listens. In Docker that's inside the container. With `npm start`, `HOSTNAME` defaults to `127.0.0.1` (this machine only) and is only read from `.env`. |
 | `DEMO_MODE` | | `true` runs the [demo](install.md#try-the-demo) with made-up people. It's ignored while Google sign-in is configured, and it never replaces a database real people have signed in to. |

@@ -55,6 +55,15 @@ Check the team's `timezone` (or `TZ`) and each person's zone on *My settings*. V
 
 ## The server
 
+**Every page sends you to Sign in.**
+`EXPOSURE=exposed` is set, so every page needs a sign-in. Sign in with your company Google account.
+
+**The sign-in page says the app isn't set up correctly.**
+With `EXPOSURE=exposed`, the app refuses to run without `google_domain` in the config and an `https://` `APP_URL`. The log's `config error` line says which one is missing.
+
+**Every request answers `500 EXPOSURE must be internal or exposed`.**
+`EXPOSURE` has another value. Set it to one of the two, or remove it.
+
 **`/healthz` says `"status":"degraded"`.**
 The config file has a mistake. The app and the Status page say what it is. Fix the file and save; no restart needed.
 

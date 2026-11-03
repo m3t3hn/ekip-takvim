@@ -23,7 +23,7 @@
 Many of us work more than one job, so "is Mert free on Thursday evening?" usually means asking around. With Ekip Takvim, everyone signs in once with their company Google account and shares their other calendars with it. From then on, the app answers that question for the whole team. *Ekip takvim* means "team calendar" in Turkish.
 
 > [!IMPORTANT]
-> Anyone who can open the app sees everyone's busy times, without signing in. Run it behind a VPN, an access proxy such as Cloudflare Access, or the built-in basic auth. See [access control](docs/access-control.md).
+> By default anyone who can open the app sees everyone's busy times, without signing in. Run it behind a VPN or an access proxy such as Cloudflare Access, or set `EXPOSURE=exposed` so that every page needs a company Google sign-in. See [access control](docs/access-control.md).
 
 ## Features
 

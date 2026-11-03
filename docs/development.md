@@ -51,18 +51,18 @@ The database is `data/ekip-takvim.sqlite`. Both it and `config/app.yaml` are git
 - **The views** ask `/api/availability` for busy blocks per person. The server decides which titles each viewer may see (`mayShowTitle`).
 - **Free-time maths** run in the browser and are shared by every view: free time, shared slots and "almost works" (`src/lib/availability.ts`, `src/lib/intervals.ts`).
 - **Sign-in** (`src/app/auth/*`, `src/lib/server/google.ts`) is a standard OAuth code flow. Refresh tokens are encrypted, and sessions are signed cookies checked against the database (`src/lib/server/secrets.ts`, `src/lib/server/viewer.ts`).
-- **Access checks** (`src/proxy.ts`): the optional Cloudflare Access token check and basic auth run before any page or API.
+- **Access checks** (`src/proxy.ts`): the optional Cloudflare Access token check, basic auth and, with `EXPOSURE=exposed`, the sign-in gate (`src/lib/server/exposure.ts`) run before any page or API.
 
 ```
 src/
-  app/               pages, /settings, /auth/* (sign-in), /api/*, /healthz, icons, manifest
+  app/               pages, /settings, /sign-in, /auth/* (Google sign-in), /api/*, /healthz, icons, manifest
   components/        the calendar UI: views, time grid, sidebar, settings, dialogs
   lib/
     availability.ts  free/busy maths shared by all views
     intervals.ts     interval merge, subtract and intersect
     time.ts          time-zone-safe day helpers
     invite.ts        Google Calendar and Outlook links, .ics files
-    server/          server only: config, database, Google, sync, sessions, demo data, Access check
+    server/          server only: config, database, Google, sync, sessions, demo data, Access check, exposure
   instrumentation.ts starts the sync loop
   proxy.ts           optional Cloudflare Access check and basic auth
 scripts/             demo, backup and restore

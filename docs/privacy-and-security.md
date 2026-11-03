@@ -33,7 +33,7 @@ The server decides what each viewer gets. Titles and details a viewer may not se
 
 The *company calendar* is the primary calendar of the account each person signs in with. Labels are shown to everyone who can open the app, so a label never holds an email address: one that does (Google names calendars after their owner's address) is replaced with *Work* or *Personal*. Where a title is visible, clicking the event shows its details. Calendar IDs and names only go to their owner, on their settings page.
 
-Anyone who can open the app, signed in or not, sees names, teams, local times and busy times, each with its calendar label. That's why the app must only be reachable by your team: see [access control](access-control.md).
+With `EXPOSURE=internal` (the default), anyone who can open the app, signed in or not, sees names, teams, local times and busy times, each with its calendar label. That's why the app must then only be reachable by your team. With `EXPOSURE=exposed`, nothing is shown until someone signs in with a company account, and the *Not signed in* column above doesn't apply. See [access control](access-control.md).
 
 ## Sessions
 

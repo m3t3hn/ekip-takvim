@@ -18,7 +18,7 @@ Only the latest release gets security fixes. [Upgrading](docs/upgrading.md) is a
 
 ## By design, not vulnerabilities
 
-- **Anyone who can open the app can see the calendar.** Viewing needs no sign-in: names, teams, busy times and calendar labels are visible to whoever reaches the address. The app must sit behind a VPN, an access proxy or the built-in basic auth ([access control](docs/access-control.md)). A report that only shows this, on an install without any of those, isn't a vulnerability.
+- **With `EXPOSURE=internal` (the default), anyone who can open the app can see the calendar.** Viewing needs no sign-in: names, teams, busy times and calendar labels are visible to whoever reaches the address. The app must then sit behind a VPN, an access proxy or the built-in basic auth, or run with `EXPOSURE=exposed` ([access control](docs/access-control.md)). A report that only shows this, on an internal install reachable from the internet, isn't a vulnerability. Seeing anything without signing in on an exposed install is.
 - **Signed-in colleagues see the titles of events on each other's company calendar**, unless the event is marked private. See [privacy and security](docs/privacy-and-security.md) for exactly who sees what.
 - **Demo mode lets anyone sign in as anyone.** It only holds made-up people, refuses to run while Google sign-in is configured, and never replaces a database real people have signed in to.
 
