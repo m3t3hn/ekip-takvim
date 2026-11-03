@@ -4,6 +4,12 @@ Notable changes to Ekip Takvim. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-03
+
+### Added
+- **`EXPOSURE=exposed`** for running the app on the open internet. Every page then needs a sign-in with a company Google account: people who aren't signed in get a sign-in page, and the API answers `401`. The app refuses to start this way without `google_domain` and an https `APP_URL`. The default, `EXPOSURE=internal`, keeps today's behaviour for apps behind a VPN.
+- **Security headers** on every response: HSTS, no framing by other sites, `nosniff`, and a strict referrer policy.
+
 ## [1.1.0] - 2026-11-01
 
 ### Changed
@@ -32,6 +38,7 @@ First public release.
 - **Demo mode** with made-up people.
 - **Backup and restore scripts.**
 
-[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/m3t3hn/ekip-takvim/releases/tag/v1.0.0
