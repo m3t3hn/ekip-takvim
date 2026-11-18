@@ -4,6 +4,18 @@ Notable changes to Ekip Takvim. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-18
+
+### Added
+- **"At least N of M" in Find a time.** A new "Who" choice lists the times when enough of the people you picked are free, not only all of them, and says who would miss each one. Useful when a meeting can go ahead without one or two people.
+- **Weekly search in Find a time.** "Repeat: every week" for 4, 6 or 8 weeks finds a weekday and time that's free every week, for the same people each time. The Google Calendar invite repeats weekly; Outlook and the `.ics` file add the first meeting only.
+
+### Changed
+- In Find a time, a row where someone would miss the meeting gets a hollow dot, like the "almost works" rows.
+
+### Fixed
+- **An event description with a hex character reference, such as `&#x27;`, no longer stops that calendar from syncing.** Many tools write an apostrophe this way. Descriptions are also read in time proportional to their length, whatever their markup, and a reference the app doesn't know, such as `&constructor;`, stays as written.
+
 ## [1.2.0] - 2026-11-03
 
 ### Added
@@ -38,7 +50,8 @@ First public release.
 - **Demo mode** with made-up people.
 - **Backup and restore scripts.**
 
-[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/m3t3hn/ekip-takvim/releases/tag/v1.0.0
