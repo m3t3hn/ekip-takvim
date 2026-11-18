@@ -2,6 +2,8 @@
 // Nothing is sent from here: the organiser's own calendar does that, so
 // invitations come from a real person and replies go back to them.
 
+import { wallClock } from "./time";
+
 export type InviteDraft = {
   title: string;
   start: number;
@@ -9,11 +11,23 @@ export type InviteDraft = {
   note: string;
   location: string;
   attendees: { name: string; email: string }[];
+  /**
+   * Repeat every week, `count` meetings in all, at the same wall-clock time
+   * in `timezone`. Only the Google Calendar link carries it.
+   */
+  weekly?: { count: number; timezone: string };
 };
 
 /** 20261007T150000Z */
 function utcStamp(epoch: number): string {
   return new Date(epoch).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+/** 20261007T180000: the wall-clock time in `tz`, with no zone. */
+function localStamp(epoch: number, tz: string): string {
+  const c = wallClock(epoch, tz);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${c.day.replace(/-/g, "")}T${two(c.hour)}${two(c.minute)}${two(c.second)}`;
 }
 
 /** 2026-10-07T15:00:00Z */
@@ -26,11 +40,20 @@ function utcIso(epoch: number): string {
  * several are signed in, instead of whichever is first in the browser.
  */
 export function googleCalendarUrl(d: InviteDraft, authuser?: string): string {
+  // A weekly series keeps its wall-clock time across daylight saving changes,
+  // so its times are given in its zone (ctz) rather than in UTC.
+  const w = d.weekly;
   const q = new URLSearchParams({
     action: "TEMPLATE",
     text: d.title,
-    dates: `${utcStamp(d.start)}/${utcStamp(d.end)}`,
+    dates: w
+      ? `${localStamp(d.start, w.timezone)}/${localStamp(d.end, w.timezone)}`
+      : `${utcStamp(d.start)}/${utcStamp(d.end)}`,
   });
+  if (w) {
+    q.set("recur", `RRULE:FREQ=WEEKLY;COUNT=${w.count}`);
+    q.set("ctz", w.timezone);
+  }
   if (d.note) q.set("details", d.note);
   if (d.location) q.set("location", d.location);
   // Google adds these as guests; it asks to email them when you save.

@@ -26,7 +26,7 @@
 - **Day:** everyone side by side, one column each. Free time stays empty. A green mark beside the hours, and the chips above the grid, show when everyone you've ticked is free.
 - **Week:** seven big day boxes. Each lists, as plain text, when every person is free, which job they're at, and the slots everyone shares.
 - **Month:** each day shows each person's free hours ("6h free", "Busy", "Off") and how much time everyone has together.
-- **Find a time:** every gap where everyone is free for at least the length you choose, over the next 3 to 30 days. *Almost works* lists slots that suit everyone but one person. To settle for fewer, pick **At least N of M**: it lists the times when at least N people are free, and who would miss each one.
+- **Find a time:** every gap where everyone is free for at least the length you choose, over the next 3 to 30 days. *Almost works* lists slots that suit everyone but one person. To settle for fewer, pick **At least N of M**: it lists the times when at least N people are free, and who would miss each one. For a meeting that repeats, set **Repeat** to **Every week** for 4, 6 or 8 weeks: it lists, for each weekday, the times that suit the same people every week. Its invites repeat in Google Calendar; Outlook and the `.ics` file add the first meeting only.
 - **Status:** each calendar's sync state, its last good sync, errors, and who needs to sign in again. When something's wrong, a red pill shows in the header.
 
 <img src="screenshots/phone.png" alt="The day view on a phone" width="260" align="right">

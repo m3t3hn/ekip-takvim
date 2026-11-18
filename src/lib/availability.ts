@@ -10,7 +10,7 @@ import {
   subtract,
   type Interval,
 } from "./intervals";
-import { addDays, dayStart, weekday, zonedTime } from "./time";
+import { addDays, dayStart, sameTimeOn, weekday, zonedTime } from "./time";
 import type { BusyBlock, DataStatus, PersonAvailability, WorkingHours } from "./types";
 
 export type Hours = { start: number; end: number };
@@ -172,14 +172,18 @@ export function findQuorumSlots(
     .map((day) => {
       // Touching windows count as one, as they do in findSlots.
       const windows = merge(upcoming(windowsFor(day), notBefore));
-      return { day, slots: quorumIn(people, windows, minMs, enough) };
+      return { day, slots: quorumIn(people, people.map((p) => freeIn(p, windows)), minMs, enough) };
     })
     .filter((d) => d.slots.length > 0);
 }
 
-function quorumIn(people: PersonAvailability[], windows: Interval[], minMs: number, need: number): QuorumSlot[] {
+/**
+ * The quorum slots, given when each person is free: `free[i]` holds
+ * `people[i]`'s free ranges, sorted and apart (none touching).
+ */
+function quorumIn(people: PersonAvailability[], free: Interval[][], minMs: number, need: number): QuorumSlot[] {
   // A free run shorter than minMs holds no slot, so it can be left out.
-  const runs = people.map((p) => atLeast(freeIn(p, windows), minMs));
+  const runs = free.map((list) => atLeast(list, minMs));
   const out: QuorumSlot[] = [];
   // A slot starts where someone's run starts; anywhere else it could start earlier.
   for (const s of new Set(runs.flat().map(([start]) => start))) {
@@ -202,6 +206,64 @@ function quorumIn(people: PersonAvailability[], windows: Interval[], minMs: numb
   return out.sort((a, b) => a.slot[0] - b.slot[0] || b.free.length - a.free.length);
 }
 
+/** How many weeks a weekly search can cover. */
+export const REPEAT_WEEKS = [4, 6, 8];
+
+/**
+ * For each weekday `filter` allows, its days from `from` on: the first one on
+ * or after `from`, then every 7 days, `weeks` days in all. The lists come in
+ * the order of their first day.
+ */
+export function weeklyDays(from: string, weeks: number, filter: DayFilter): string[][] {
+  return daysInRange(from, 7, filter).map((first) => Array.from({ length: weeks }, (_, i) => addDays(first, 7 * i)));
+}
+
+export type WeeklySlots = { weekday: number; days: string[]; slots: QuorumSlot[] };
+
+/**
+ * Slots for a meeting every week: for each list of weeklyDays, the times
+ * when at least `need` people are free on every one of its days, the same
+ * people every week, at the same wall-clock time in `tz`. The slots are
+ * findQuorumSlots' on the first day, with each person free only where they
+ * are free in every week, so `free` is who is free in all of them. Ranges are
+ * given on the first day. A weekday without a slot is left out.
+ */
+export function findWeeklySlots(
+  people: PersonAvailability[],
+  from: string,
+  weeks: number,
+  filter: DayFilter,
+  windowsFor: WindowsFor,
+  minMs: number,
+  need: number,
+  tz: string,
+): WeeklySlots[] {
+  const enough = Math.min(need, people.length);
+  const busy = people.map(busyOf);
+  return weeklyDays(from, weeks, filter)
+    .filter((days) => days.length > 0)
+    .map((days) => {
+      const [first, ...later] = days;
+      // Touching windows count as one, as they do in findQuorumSlots.
+      const windows = days.map((day) => merge(windowsFor(day)));
+      const free = busy.map((b) => {
+        let common = windows[0].flatMap((w) => subtract(w, b));
+        // Each later week's free time, moved onto the first day by the clock.
+        for (let i = 0; i < later.length && common.length > 0; i++) {
+          const week = windows[i + 1].flatMap((w) => subtract(w, b));
+          const moved = week.map(([s, e]): Interval => [
+            sameTimeOn(s, later[i], first, tz),
+            sameTimeOn(e, later[i], first, tz),
+          ]);
+          common = intersect(common, moved);
+        }
+        return common;
+      });
+      return { weekday: weekday(first), days, slots: quorumIn(people, free, minMs, enough) };
+    })
+    .filter((w) => w.slots.length > 0);
+}
+
 /** The "At least N of M" choices for `count` people: count - 1 down to 2, none under 3. */
 export function needChoices(count: number): number[] {
   return Array.from({ length: Math.max(0, count - 2) }, (_, i) => count - 1 - i);
@@ -217,6 +279,11 @@ export function parseNeed(raw?: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
   const need = Number(raw);
   return need >= 2 ? need : null;
+}
+
+/** The `weeks` URL parameter: "4", "6" or "8"; anything else is null (once). */
+export function parseWeeks(raw?: string | null): number | null {
+  return REPEAT_WEEKS.find((w) => String(w) === raw) ?? null;
 }
 
 /** "All 7 free", or "5 of 7 free · without Can, Deniz". */

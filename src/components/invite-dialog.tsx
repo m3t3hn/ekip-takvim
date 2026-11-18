@@ -1,11 +1,22 @@
 "use client";
 
-import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, X } from "lucide-react";
+import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, Repeat, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { blocksDuring, hasData, isFree, noDataText } from "@/lib/availability";
 import type { Interval } from "@/lib/intervals";
 import { buildIcs, googleCalendarUrl, outlookUrl, type InviteDraft } from "@/lib/invite";
-import { MINUTE, dayKeyOf, formatDay, formatHours, formatRange, formatTime, offsetLabel, zoneLabel } from "@/lib/time";
+import {
+  MINUTE,
+  addDays,
+  dayKeyOf,
+  formatDay,
+  formatHours,
+  formatRange,
+  formatTime,
+  offsetLabel,
+  sameTimeOn,
+  zoneLabel,
+} from "@/lib/time";
 import type { Person, PersonAvailability, Zone } from "@/lib/types";
 import { useAvailability } from "./hooks";
 import { Avatar, Button, ColorCheckbox, IconButton, Input, Select, cn, firstName, useCopy } from "./ui";
@@ -13,10 +24,28 @@ import { Avatar, Button, ColorCheckbox, IconButton, Input, Select, cn, firstName
 const STEP = 15 * MINUTE;
 const LENGTHS = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
+/**
+ * Every meeting an invite makes, with its day: `range` on `day`, and for a
+ * weekly invite the same wall-clock time in its zone on each later week, the
+ * way the weekly search and Google's repeat line them up.
+ */
+function meetingsOf(day: string, range: Interval, weekly?: InviteDraft["weekly"]): { day: string; range: Interval }[] {
+  const out = [{ day, range }];
+  for (let i = 1; weekly && i < weekly.count; i++) {
+    const d = addDays(day, 7 * i);
+    out.push({
+      day: d,
+      range: [sameTimeOn(range[0], day, d, weekly.timezone), sameTimeOn(range[1], day, d, weekly.timezone)],
+    });
+  }
+  return out;
+}
+
 /** Prepare an invite for a free slot and hand it to the organiser's calendar. */
 export function InviteDialog({
   day,
   range,
+  weekly,
   defaultMinutes,
   people,
   tz,
@@ -27,6 +56,8 @@ export function InviteDialog({
 }: {
   day: string;
   range: Interval;
+  /** Repeat the meeting every week from `day` on. */
+  weekly?: InviteDraft["weekly"];
   defaultMinutes: number;
   people: Person[];
   /** The viewer's zone, which the start and length pickers use. */
@@ -37,7 +68,8 @@ export function InviteDialog({
   now: number;
   onClose: () => void;
 }) {
-  const { data } = useAvailability(day, 1, tz);
+  // A weekly invite is checked against every week it repeats in, not just the first.
+  const { data } = useAvailability(day, weekly ? 7 * (weekly.count - 1) + 1 : 1, tz);
   const copy = useCopy();
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -54,6 +86,8 @@ export function InviteDialog({
     Math.max(15, Math.min(defaultMinutes, Math.round((range[1] - earliest) / MINUTE))),
   );
   const end = start + minutes * MINUTE;
+  const meetings = meetingsOf(day, [start, end], weekly);
+  const freeAtAll = (p: PersonAvailability) => meetings.every((m) => isFree(p, m.range));
 
   const [title, setTitle] = useState("Team meeting");
   const [note, setNote] = useState("");
@@ -61,8 +95,8 @@ export function InviteDialog({
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  // Until someone changes it, invite whoever we know is free then.
-  const included = picked ?? new Set(avail.filter((p) => hasData(p) && isFree(p, [start, end])).map((p) => p.id));
+  // Until someone changes it, invite whoever we know is free then, every week of a weekly one.
+  const included = picked ?? new Set(avail.filter((p) => hasData(p) && freeAtAll(p)).map((p) => p.id));
 
 
   useEffect(() => {
@@ -100,6 +134,7 @@ export function InviteDialog({
       note: note.trim(),
       location: location.trim(),
       attendees: guests.map((p) => ({ name: p.name, email: p.email })),
+      ...(weekly ? { weekly } : {}),
     };
   };
 
@@ -118,7 +153,7 @@ export function InviteDialog({
   };
 
   const busyNow = guests
-    .map((p) => ({ p, blocks: blocksDuring(p, [start, end]) }))
+    .map((p) => ({ p, blocks: meetings.flatMap((m) => blocksDuring(p, m.range)) }))
     .filter((x) => x.blocks.length > 0);
 
   return (
@@ -199,8 +234,18 @@ export function InviteDialog({
                 {avail.map((p) => {
                   const on = included.has(p.id);
                   const unknown = noDataText(p);
-                  const free = !unknown && isFree(p, [start, end]);
-                  const busyAt = [...new Set(blocksDuring(p, [start, end]).map((b) => b.title ?? b.label))];
+                  const free = !unknown && freeAtAll(p);
+                  // The meetings they can't make, and what's in the way.
+                  const clash = meetings.filter((m) => !isFree(p, m.range));
+                  const busyAt = [
+                    ...new Set(clash.flatMap((m) => blocksDuring(p, m.range)).map((b) => b.title ?? b.label)),
+                  ];
+                  // A weekly invite says which weeks.
+                  const when = !weekly
+                    ? ""
+                    : clash.length === meetings.length
+                      ? " every week"
+                      : ` ${clash.map((m) => formatDay(m.day)).join(", ")}`;
                   return (
                     <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                       <ColorCheckbox
@@ -234,7 +279,7 @@ export function InviteDialog({
                         )}
                       >
                         {free ? <CircleCheck className="size-3.5" aria-hidden /> : <CircleAlert className="size-3.5" aria-hidden />}
-                        {free ? "free" : unknown ? unknown.short.toLowerCase() : `busy · ${busyAt.join(", ")}`}
+                        {free ? "free" : unknown ? unknown.short.toLowerCase() : `busy${when} · ${busyAt.join(", ")}`}
                       </span>
                       <span className="ml-auto truncate font-body text-xs text-fg-3">
                         {p.email === organiser ? "you (organiser)" : p.email}
@@ -275,6 +320,15 @@ export function InviteDialog({
         </div>
 
         <div className="flex flex-col gap-3 border-t border-grid bg-surface-2/60 px-5 py-4">
+          {weekly && (
+            <p className="flex gap-2 font-body text-sm text-fg-2">
+              <Repeat className="mt-0.5 size-4 shrink-0 text-fg-3" aria-hidden />
+              <span>
+                Repeats every week, {weekly.count} times, until {formatDay(addDays(day, 7 * (weekly.count - 1)))}.
+                Only the Google Calendar link repeats it; Outlook and the .ics file add the first meeting only.
+              </span>
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"

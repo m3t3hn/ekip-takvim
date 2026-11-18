@@ -1,5 +1,6 @@
 import type { DayFilter, Hours } from "@/lib/availability";
 import type { Interval } from "@/lib/intervals";
+import type { InviteDraft } from "@/lib/invite";
 import type { ClientSettings, Person, Zone } from "@/lib/types";
 import type { GridSelection } from "./time-grid";
 
@@ -19,6 +20,8 @@ export type AppState = {
   offHours: boolean;
   /** Find a time looks for at least this many of the ticked people; null = everyone. */
   need: number | null;
+  /** Find a time looks for the same time every week for this many weeks; null = once. */
+  weeks: number | null;
 };
 
 export type ViewProps = {
@@ -39,6 +42,6 @@ export type ViewProps = {
   now: number;
   selection: GridSelection | null;
   setSelection: (s: GridSelection | null) => void;
-  /** Open the invite dialog for a free range on a day. */
-  onInvite: (day: string, range: Interval) => void;
+  /** Open the invite dialog for a free range on a day; `weekly` repeats it every week. */
+  onInvite: (day: string, range: Interval, weekly?: InviteDraft["weekly"]) => void;
 };

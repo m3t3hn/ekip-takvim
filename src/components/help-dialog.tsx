@@ -19,7 +19,7 @@ const STEPS = [
   },
   {
     title: "Let it find the time",
-    body: "“Find a time” lists every gap that fits everyone for the length you choose, plus slots that work for all but one person. Pick “At least N of M” to settle for at least N people.",
+    body: "“Find a time” lists every gap that fits everyone for the length you choose, plus slots that work for all but one person. Pick “At least N of M” to settle for at least N people, and “Every week” under Repeat for a time that suits the same people every week for 4, 6 or 8 weeks.",
   },
 ];
 

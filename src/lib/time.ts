@@ -53,6 +53,50 @@ export function addDays(key: string, n: number): string {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
+const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Where `epoch` is on the wall clock in `tz`: its day key and time of day. */
+export function wallClock(
+  epoch: number,
+  tz: string,
+): { day: string; hour: number; minute: number; second: number; ms: number } {
+  let f = clockFormatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    clockFormatters.set(tz, f);
+  }
+  const p: Record<string, string> = {};
+  for (const { type, value } of f.formatToParts(epoch)) p[type] = value;
+  return {
+    day: `${p.year}-${p.month}-${p.day}`,
+    hour: Number(p.hour),
+    minute: Number(p.minute),
+    second: Number(p.second),
+    ms: ((epoch % 1000) + 1000) % 1000,
+  };
+}
+
+/**
+ * The moment on day `to` that shows the same wall-clock time in `tz` as
+ * `epoch` does on day `from`; a time past the end of `from` lands as far past
+ * the end of `to`. It goes by the clock, never by a number of hours: daylight
+ * saving can change the offset between the two days.
+ */
+export function sameTimeOn(epoch: number, from: string, to: string, tz: string): number {
+  const c = wallClock(epoch, tz);
+  const [y, m, d] = parts(addDays(to, diffDays(from, c.day)));
+  return new TZDate(y, m - 1, d, c.hour, c.minute, c.second, c.ms, tz).getTime();
+}
+
 /** 0 = Sunday … 6 = Saturday. */
 export function weekday(key: string): number {
   const [y, m, d] = parts(key);

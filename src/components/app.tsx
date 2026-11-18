@@ -2,7 +2,8 @@
 
 import { ChevronLeft, ChevronRight, CircleAlert, CircleHelp, LogIn, Menu, Monitor, Moon, Sun, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { parseNeed, searchWindows, workingIntervals, type DayFilter } from "@/lib/availability";
+import { parseNeed, parseWeeks, searchWindows, workingIntervals, type DayFilter } from "@/lib/availability";
+import type { InviteDraft } from "@/lib/invite";
 import { docsUrl } from "@/lib/links";
 import {
   addDays,
@@ -20,7 +21,7 @@ import { HelpDialog } from "./help-dialog";
 import { InviteDialog } from "./invite-dialog";
 import { MonthView } from "./month-view";
 import { useNow, useStatus } from "./hooks";
-import { ScheduleView } from "./schedule-view";
+import { ScheduleView, weeklyStart } from "./schedule-view";
 import { Sidebar } from "./sidebar";
 import { StatusView } from "./status-view";
 import type { GridSelection } from "./time-grid";
@@ -57,6 +58,7 @@ function parseState(q: Record<string, string>, settings: ClientSettings, today: 
     dayFilter: ["all", "weekdays", "weekends"].includes(q.days) ? (q.days as DayFilter) : "all",
     offHours: q.offhours === "1",
     need: parseNeed(q.need),
+    weeks: parseWeeks(q.weeks),
   };
 }
 
@@ -73,6 +75,7 @@ function serialiseState(s: AppState, settings: ClientSettings, today: string): s
   if (s.dayFilter !== "all") q.set("days", s.dayFilter);
   if (s.offHours) q.set("offhours", "1");
   if (s.need !== null) q.set("need", String(s.need));
+  if (s.weeks !== null) q.set("weeks", String(s.weeks));
   const qs = q.toString();
   return qs ? `?${qs}` : window.location.pathname;
 }
@@ -82,10 +85,21 @@ function monthYear(key: string, opts: Intl.DateTimeFormatOptions) {
   return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...opts }).format(Date.UTC(y, m - 1, d));
 }
 
+/** The days a weekly search in Find a time covers, first and last. */
+function weeklySpan(state: AppState, weeks: number, today: string): [string, string] {
+  const start = weeklyStart(state.date, today);
+  return [start, addDays(start, 7 * weeks - 1)];
+}
+
 function title(state: AppState, weekStartsOn: 0 | 1, today: string): string {
   if (state.view === "status") return "Calendar status";
   if (state.view === "day") return monthYear(state.date, { day: "numeric", month: "long", year: "numeric" });
   if (state.view === "month") return monthYear(state.date, { month: "long", year: "numeric" });
+  if (state.view === "schedule" && state.weeks !== null) {
+    const [first, last] = weeklySpan(state, state.weeks, today);
+    const sameYear = first.slice(0, 4) === last.slice(0, 4);
+    return `${monthYear(first, { day: "numeric", month: "short", year: sameYear ? undefined : "numeric" })} – ${monthYear(last, { day: "numeric", month: "short", year: "numeric" })}`;
+  }
   const start = state.view === "week" ? startOfWeek(state.date, weekStartsOn) : state.date < today ? today : state.date;
   const end = addDays(start, state.view === "week" ? 6 : state.ahead - 1);
   if (start.slice(0, 7) === end.slice(0, 7)) return monthYear(start, { month: "long", year: "numeric" });
@@ -98,6 +112,10 @@ function shortTitle(state: AppState, weekStartsOn: 0 | 1, today: string): string
   if (state.view === "status") return "Status";
   if (state.view === "day") return monthYear(state.date, { day: "numeric", month: "short" });
   if (state.view === "month") return monthYear(state.date, { month: "short", year: "numeric" });
+  if (state.view === "schedule" && state.weeks !== null) {
+    const [first, last] = weeklySpan(state, state.weeks, today);
+    return `${monthYear(first, { day: "numeric", month: "short" })} – ${monthYear(last, { day: "numeric", month: "short" })}`;
+  }
   const start = state.view === "week" ? startOfWeek(state.date, weekStartsOn) : state.date < today ? today : state.date;
   return monthYear(start, { month: "short", year: "numeric" });
 }
@@ -137,7 +155,11 @@ function Shell({
   const [drawer, setDrawer] = useState(false);
   const [lastView, setLastView] = useState<ViewName>("day");
   const [help, setHelp] = useState(false);
-  const [invite, setInvite] = useState<{ day: string; range: [number, number] } | null>(null);
+  const [invite, setInvite] = useState<{
+    day: string;
+    range: [number, number];
+    weekly?: InviteDraft["weekly"];
+  } | null>(null);
   const status = useStatus();
   const now = useNow(serverNow);
   const notify = useNotify();
@@ -211,11 +233,16 @@ function Shell({
         go({ date: addMonths(state.date, dir) });
         return;
       }
+      if (state.view === "schedule" && state.weeks !== null) {
+        // A weekly search moves a week at a time.
+        go({ date: addDays(weeklyStart(state.date, today), dir * 7) });
+        return;
+      }
       const step = state.view === "week" ? 7 : state.view === "schedule" ? state.ahead : 1;
       const base = state.view === "schedule" && state.date < today ? today : state.date;
       go({ date: addDays(base, dir * step) });
     },
-    [go, state.view, state.ahead, state.date, today],
+    [go, state.view, state.ahead, state.weeks, state.date, today],
   );
 
   const [syncing, setSyncing] = useState(false);
@@ -288,7 +315,8 @@ function Shell({
     now,
     selection,
     setSelection,
-    onInvite: (day: string, range: [number, number]) => setInvite({ day, range }),
+    onInvite: (day: string, range: [number, number], weekly?: InviteDraft["weekly"]) =>
+      setInvite({ day, range, weekly }),
   };
 
   const sidebar = (
@@ -511,6 +539,7 @@ function Shell({
         <InviteDialog
           day={invite.day}
           range={invite.range}
+          weekly={invite.weekly}
           defaultMinutes={state.duration}
           people={checkedPeople}
           tz={tz}
