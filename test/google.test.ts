@@ -76,6 +76,28 @@ describe("event details", () => {
     const html = 'Agenda<br>1. <b>Launch</b><br><a href="https://zoom.us/j/9">Join</a> &amp; <a href="https://x.io">https://x.io</a><script>bad()</script>';
     expect(htmlToText(html)).toBe("Agenda\n1. Launch\nJoin (https://zoom.us/j/9) & https://x.io");
   });
+
+  it("reads hex character references in a description, and keeps the event whatever reference it holds", () => {
+    // &#x27; is how Python's html.escape writes an apostrophe.
+    expect(busyFromEvent(timed({ description: "<p>Don&#x27;t forget &#X41;&#x42;</p>" }), "UTC")?.details?.description).toBe("Don't forget AB");
+    for (const ref of ["&#99999999;", "&#x110000;", "&#xFFFFFFFFFFFFFFFFFFFF;", "&#Infinity;", "&#1_0;", "&#x41zz;", "&#xD800;"]) {
+      const b = busyFromEvent(timed({ summary: "Sync", description: `<p>Notes ${ref} end</p>` }), "UTC");
+      expect(b, ref).toMatchObject({ title: "Sync", details: { description: expect.stringMatching(/^Notes .* end$/) } });
+    }
+  });
+
+  it("reads only the named references it lists, and leaves any other name as written, Object.prototype's too", () => {
+    expect(htmlToText("<p>Fish &constructor; chips &toString; &__proto__;</p>")).toBe("Fish &constructor; chips &toString; &__proto__;");
+    for (const name of [
+      "constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "isPrototypeOf", "propertyIsEnumerable",
+      "toLocaleString", "__defineGetter__", "__lookupSetter__", "hellip", "copy", "eacute", "ampx",
+    ]) {
+      expect(htmlToText(`a &${name}; b`), name).toBe(`a &${name}; b`);
+    }
+    expect(htmlToText("&amp; &lt; &gt; &quot; &apos; a&nbsp;b")).toBe(`& < > " ' a b`);
+    // Numeric references as before.
+    expect(htmlToText("It&#39;s &#x27;quoted&#x27; &#65;&#x42;")).toBe("It's 'quoted' AB");
+  });
 });
 
 describe("free/busy calendars", () => {
