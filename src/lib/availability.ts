@@ -149,6 +149,83 @@ export function almostSlots(
   return out.sort((a, b) => a.slot[0] - b.slot[0]);
 }
 
+export type QuorumSlot = { slot: Interval; free: PersonAvailability[]; missing: PersonAvailability[] };
+export type QuorumDay = { day: string; slots: QuorumSlot[] };
+
+/**
+ * Slots where at least `need` of the people are free, with who is and who
+ * isn't. Each slot runs as long as the people free in it stay free, so a
+ * start can come more than once: shorter with more people, longer with fewer.
+ * A need at or above the number of people gives findSlots' slots. Every slot
+ * has someone free, so a need below 1 works as 1.
+ */
+export function findQuorumSlots(
+  people: PersonAvailability[],
+  days: string[],
+  windowsFor: WindowsFor,
+  minMs: number,
+  notBefore: number,
+  need: number,
+): QuorumDay[] {
+  const enough = Math.min(need, people.length);
+  return days
+    .map((day) => {
+      // Touching windows count as one, as they do in findSlots.
+      const windows = merge(upcoming(windowsFor(day), notBefore));
+      return { day, slots: quorumIn(people, windows, minMs, enough) };
+    })
+    .filter((d) => d.slots.length > 0);
+}
+
+function quorumIn(people: PersonAvailability[], windows: Interval[], minMs: number, need: number): QuorumSlot[] {
+  // A free run shorter than minMs holds no slot, so it can be left out.
+  const runs = people.map((p) => atLeast(freeIn(p, windows), minMs));
+  const out: QuorumSlot[] = [];
+  // A slot starts where someone's run starts; anywhere else it could start earlier.
+  for (const s of new Set(runs.flat().map(([start]) => start))) {
+    // Until when each person stays free from s on (-Infinity: busy at s).
+    const until = runs.map((list) => list.find(([a, b]) => a <= s && s < b)?.[1] ?? -Infinity);
+    const opens = runs.map((list) => list.some(([a]) => a === s));
+    // Latest end first; the people still free until then are the group.
+    for (const e of [...new Set(until)].filter((u) => u > s).sort((a, b) => b - a)) {
+      if (e - s < minMs) break;
+      const inGroup = until.map((u) => u >= e);
+      // Without someone whose run starts at s, the group was free earlier too.
+      if (inGroup.filter(Boolean).length < need || !inGroup.some((g, i) => g && opens[i])) continue;
+      out.push({
+        slot: [s, e],
+        free: people.filter((_, i) => inGroup[i]),
+        missing: people.filter((_, i) => !inGroup[i]),
+      });
+    }
+  }
+  return out.sort((a, b) => a.slot[0] - b.slot[0] || b.free.length - a.free.length);
+}
+
+/** The "At least N of M" choices for `count` people: count - 1 down to 2, none under 3. */
+export function needChoices(count: number): number[] {
+  return Array.from({ length: Math.max(0, count - 2) }, (_, i) => count - 1 - i);
+}
+
+/** The need that applies with `count` people, or null for everyone. */
+export function effectiveNeed(need: number | null, count: number): number | null {
+  return typeof need === "number" && Number.isInteger(need) && need >= 2 && need < count ? need : null;
+}
+
+/** The `need` URL parameter: digits only, 2 or more; anything else is null. */
+export function parseNeed(raw?: string | null): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const need = Number(raw);
+  return need >= 2 ? need : null;
+}
+
+/** "All 7 free", or "5 of 7 free · without Can, Deniz". */
+export function quorumNote({ free, missing }: { free: readonly { name: string }[]; missing: readonly { name: string }[] }): string {
+  if (missing.length === 0) return `All ${free.length} free`;
+  const without = missing.map((p) => p.name.split(/\s+/)[0]).join(", ");
+  return `${free.length} of ${free.length + missing.length} free · without ${without}`;
+}
+
 /** Greedy lane packing so overlapping blocks of one person sit side by side. */
 export function assignLanes(blocks: { start: number; end: number }[]) {
   const ends: number[] = [];

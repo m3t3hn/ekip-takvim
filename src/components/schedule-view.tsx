@@ -2,7 +2,18 @@
 
 import { CalendarSearch, Send } from "lucide-react";
 import { useMemo } from "react";
-import { almostSlots, daysInRange, findSlots, hasData, leftOutNote, type DayFilter } from "@/lib/availability";
+import {
+  almostSlots,
+  daysInRange,
+  effectiveNeed,
+  findQuorumSlots,
+  findSlots,
+  hasData,
+  leftOutNote,
+  needChoices,
+  quorumNote,
+  type DayFilter,
+} from "@/lib/availability";
 import type { Interval } from "@/lib/intervals";
 import { MINUTE, addDays, dayKeyOf, formatDay, formatHours, formatRange } from "@/lib/time";
 import type { PersonAvailability } from "@/lib/types";
@@ -16,7 +27,10 @@ const AHEAD = [3, 7, 14, 30];
 
 const duration = (min: number) => (min < 60 ? `${min} min` : formatHours(min * MINUTE));
 
-/** Agenda-style list of gaps where everyone ticked is free. */
+/** A found slot as listed: its note, and who isn't free in it. */
+type Row = { slot: Interval; note: string; missing: PersonAvailability[] };
+
+/** Agenda-style list of gaps where everyone ticked, or at least N of them, is free. */
 export function ScheduleView({
   tz,
   windowsFor,
@@ -43,11 +57,38 @@ export function ScheduleView({
   const leftOut = data ? leftOutNote(avail) : null;
   const minMs = state.duration * MINUTE;
   const days = daysInRange(start, state.ahead, state.dayFilter);
-  const results = data && known.length ? findSlots(known, days, windowsFor, minMs, now) : [];
-  const count = results.reduce((n, d) => n + d.slots.length, 0);
-  const almost = data && count < 4 ? almostSlots(known, days, windowsFor, minMs, now).slice(0, 10) : [];
-  const names = known.map((p) => firstName(p.name)).join(", ");
   const shown = data ? known : people;
+  // "At least N of M", M being who counts; while calendars load, everyone ticked.
+  const need = effectiveNeed(state.need, shown.length);
+  const results: { day: string; rows: Row[] }[] =
+    !data || known.length === 0
+      ? []
+      : need === null
+        ? findSlots(known, days, windowsFor, minMs, now).map(({ day, slots }) => ({
+            day,
+            rows: slots.map((slot) => ({ slot, note: `${formatHours(slot[1] - slot[0])} free`, missing: [] })),
+          }))
+        : findQuorumSlots(known, days, windowsFor, minMs, now, need).map(({ day, slots }) => ({
+            day,
+            rows: slots.map((q) => ({ slot: q.slot, note: quorumNote(q), missing: q.missing })),
+          }));
+  const count = results.reduce((n, d) => n + d.rows.length, 0);
+  const almost =
+    data && need === null && count < 4 ? almostSlots(known, days, windowsFor, minMs, now).slice(0, 10) : [];
+  const names = known.map((p) => firstName(p.name)).join(", ");
+  const [before, after] =
+    need !== null
+      ? [`Times when at least ${need} of `, " are free"]
+      : shown.length === 1
+        ? ["Free time for ", ""]
+        : ["Times when ", shown.length === 2 ? " are both free" : " are all free"];
+  // When only some need to come, ticking fewer people never finds more.
+  const tries = [
+    ...(need !== null && need > 2 ? ["a lower number"] : []),
+    "a shorter length",
+    "wider search hours",
+    ...(need === null ? ["fewer people"] : []),
+  ];
 
   if (people.length === 0) return <EmptyPeople />;
 
@@ -61,13 +102,25 @@ export function ScheduleView({
             ))}
           </div>
           <div className="font-body text-sm text-fg-2">
-            {shown.length === 1 ? "Free time for " : "Times when "}
+            {before}
             <span className="font-medium text-fg">{shown.map((p) => firstName(p.name)).join(", ")}</span>
-            {shown.length === 1 ? "" : shown.length === 2 ? " are both free" : " are all free"}
+            {after}
             {leftOut && <div className="text-xs text-warn">{leftOut}</div>}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          {shown.length >= 3 && (
+            <Select
+              aria-label="Who"
+              value={need ?? ""}
+              onChange={(e) => update({ need: e.target.value ? Number(e.target.value) : null })}
+            >
+              <option value="">Everyone</option>
+              {needChoices(shown.length).map((n) => (
+                <option key={n} value={n}>{`At least ${n} of ${shown.length}`}</option>
+              ))}
+            </Select>
+          )}
           <Select aria-label="Length" value={state.duration} onChange={(e) => update({ duration: Number(e.target.value) })}>
             {DURATIONS.map((m) => (
               <option key={m} value={m}>{`${duration(m)} or longer`}</option>
@@ -93,9 +146,16 @@ export function ScheduleView({
               onClick={() =>
                 copy(
                   [
-                    `When ${names} are free (${duration(state.duration)}+):`,
+                    `When ${need === null ? "" : `at least ${need} of `}${names} are free (${duration(state.duration)}+):`,
                     ...results.map(
-                      (r) => `${formatDay(r.day)}: ${r.slots.map(([s, e]) => formatRange(s, e, tz)).join(", ")}`,
+                      (r) =>
+                        `${formatDay(r.day)}: ${r.rows
+                          .map(
+                            ({ slot: [s, e], missing }) =>
+                              formatRange(s, e, tz) +
+                              (missing.length ? ` (without ${missing.map((p) => firstName(p.name)).join(", ")})` : ""),
+                          )
+                          .join(", ")}`,
                     ),
                   ].join("\n"),
                 )
@@ -116,21 +176,22 @@ export function ScheduleView({
           </div>
         ) : count === 0 ? (
           <Message
-            title="Nothing fits everyone"
-            body={`No ${duration(state.duration)} gap in the next ${state.ahead} days between ${String(state.hours.start).padStart(2, "0")}:00 and ${String(state.hours.end).padStart(2, "0")}:00${state.offHours ? "" : " within working hours"}. Try a shorter length, wider search hours, fewer people${state.offHours ? "" : ", or “Show off-hours” in the sidebar"}.`}
+            title={need === null ? "Nothing fits everyone" : `Nothing suits at least ${need} of the ${shown.length}`}
+            body={`No ${duration(state.duration)} gap in the next ${state.ahead} days between ${String(state.hours.start).padStart(2, "0")}:00 and ${String(state.hours.end).padStart(2, "0")}:00${state.offHours ? "" : " within working hours"}. Try ${tries.join(", ")}${state.offHours ? "" : ", or “Show off-hours” in the sidebar"}.`}
           />
         ) : (
           <ol>
-            {results.map(({ day, slots }) => (
+            {results.map(({ day, rows }) => (
               <li key={day} className="grid grid-cols-[92px_minmax(0,1fr)] border-b border-grid px-2 py-2 sm:grid-cols-[140px_minmax(0,1fr)] sm:px-4">
                 <DateBlock day={day} today={today} />
                 <ul className="flex flex-col">
-                  {slots.map((slot) => (
-                    <li key={slot[0]}>
+                  {rows.map(({ slot, note }) => (
+                    // In quorum mode a start can come more than once.
+                    <li key={`${slot[0]}-${slot[1]}`}>
                       <SlotRow
                         slot={slot}
                         tz={tz}
-                        note={`${formatHours(slot[1] - slot[0])} free`}
+                        note={note}
                         onClick={() => openSlot(day, slot)}
                         onInvite={() => onInvite(day, slot)}
                       />

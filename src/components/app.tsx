@@ -2,7 +2,7 @@
 
 import { ChevronLeft, ChevronRight, CircleAlert, CircleHelp, LogIn, Menu, Monitor, Moon, Sun, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { searchWindows, workingIntervals, type DayFilter } from "@/lib/availability";
+import { parseNeed, searchWindows, workingIntervals, type DayFilter } from "@/lib/availability";
 import { docsUrl } from "@/lib/links";
 import {
   addDays,
@@ -56,6 +56,7 @@ function parseState(q: Record<string, string>, settings: ClientSettings, today: 
     ahead: int(q.ahead, 1, 31, 14),
     dayFilter: ["all", "weekdays", "weekends"].includes(q.days) ? (q.days as DayFilter) : "all",
     offHours: q.offhours === "1",
+    need: parseNeed(q.need),
   };
 }
 
@@ -71,6 +72,7 @@ function serialiseState(s: AppState, settings: ClientSettings, today: string): s
   if (s.ahead !== 14) q.set("ahead", String(s.ahead));
   if (s.dayFilter !== "all") q.set("days", s.dayFilter);
   if (s.offHours) q.set("offhours", "1");
+  if (s.need !== null) q.set("need", String(s.need));
   const qs = q.toString();
   return qs ? `?${qs}` : window.location.pathname;
 }

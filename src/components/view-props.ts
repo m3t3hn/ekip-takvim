@@ -17,6 +17,8 @@ export type AppState = {
   dayFilter: DayFilter;
   /** Times outside working hours can be picked and searched. */
   offHours: boolean;
+  /** Find a time looks for at least this many of the ticked people; null = everyone. */
+  need: number | null;
 };
 
 export type ViewProps = {
