@@ -41,9 +41,13 @@ export function SettingsView({
   const [color, setColor] = useState(initial.color);
   const [colorProblem, setColorProblem] = useState<string | null>(null);
   const [calendars, setCalendars] = useState<MyCalendar[]>(initial.calendars);
-  const [busy, setBusy] = useState<"save" | "refresh" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"save" | "refresh" | "delete" | "add" | "remove" | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** The calendar link asking "remove it?". */
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [newLink, setNewLink] = useState({ url: "", label: "" });
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const load = (next: MySettings) => {
     setMe(next);
@@ -112,6 +116,43 @@ export function SettingsView({
     } else {
       setBusy(null);
       setMessage({ ok: false, text: "Couldn't remove you. Try again." });
+    }
+  };
+
+  const addLink = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy("add");
+    setLinkError(null);
+    try {
+      const res = await fetch("/api/me/calendars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: newLink.url.trim(), label: newLink.label.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Couldn't add that calendar link");
+      load(body);
+      setNewLink({ url: "", label: "" });
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Couldn't add that calendar link");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const removeLink = async (id: string) => {
+    setBusy("remove");
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/me/calendars/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Couldn't remove that calendar");
+      load(body);
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : "Couldn't remove that calendar" });
+    } finally {
+      setConfirmRemove(null);
+      setBusy(null);
     }
   };
 
@@ -260,9 +301,12 @@ export function SettingsView({
                       <span className="rounded-full bg-accent px-2 py-px font-body text-[11px] font-medium text-on-accent">New</span>
                     )}
                     {c.primary && <Badge>Company</Badge>}
+                    {c.kind === "link" && <Badge title="Read from a calendar link you added. Only this server keeps the link.">Calendar link</Badge>}
                     {c.access === "freebusy" && <Badge title="Shared as “See only free/busy”: busy times only, no tentative or all-day marks">Free/busy only</Badge>}
                   </div>
-                  {c.included && (
+                  {c.kind === "link" && !me.linksAllowed ? (
+                    <div className="mt-0.5 font-body text-xs text-fg-3">Calendar links are off on this server, so this one doesn&apos;t count.</div>
+                  ) : c.included && (
                     <div className="mt-0.5 font-body text-xs">
                       {c.state === "error" ? (
                         <span className="inline-flex items-center gap-1 text-danger">
@@ -289,9 +333,68 @@ export function SettingsView({
                   placeholder="Label, e.g. Agency"
                   onChange={(e) => patch(c.id, { label: e.target.value })}
                 />
+                {c.kind === "link" &&
+                  (confirmRemove === c.id ? (
+                    <span className="flex items-center gap-2">
+                      <Button variant="danger" onClick={() => removeLink(c.id)} disabled={busy !== null}>
+                        {busy === "remove" ? "Removing…" : "Yes, remove"}
+                      </Button>
+                      <Button onClick={() => setConfirmRemove(null)} disabled={busy === "remove"}>
+                        Cancel
+                      </Button>
+                    </span>
+                  ) : (
+                    <Button
+                      variant="text"
+                      onClick={() => setConfirmRemove(c.id)}
+                      disabled={busy !== null}
+                      aria-label={`Remove ${c.label.trim() || c.summary}`}
+                    >
+                      Remove
+                    </Button>
+                  ))}
               </li>
             ))}
           </ul>
+
+          {me.linksAllowed && (
+            <form onSubmit={addLink} className="mt-4 rounded-xl border border-grid p-4">
+              <h3 className="text-sm font-semibold text-fg">Add a calendar link</h3>
+              <p className="mt-1 font-body text-xs text-fg-2">
+                For a calendar that isn&apos;t on Google, paste its secret iCal (ICS) address: Outlook gives it under
+                “Publish calendar”, iCloud under “Public calendar”, Proton under “Share via link” and Nextcloud under
+                “Copy subscription link”. Only this server keeps the link; colleagues see only the label.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Input
+                  aria-label="Calendar link"
+                  className="h-8 min-w-0 flex-1 basis-64"
+                  value={newLink.url}
+                  placeholder="https://… or webcal://…"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setNewLink((l) => ({ ...l, url: e.target.value }))}
+                />
+                <Input
+                  aria-label="Label for the calendar link"
+                  className="h-8 w-full sm:w-44"
+                  value={newLink.label}
+                  maxLength={40}
+                  placeholder="Label, e.g. Agency"
+                  onChange={(e) => setNewLink((l) => ({ ...l, label: e.target.value }))}
+                />
+                <Button type="submit" variant="tonal" disabled={busy !== null || !newLink.url.trim() || !newLink.label.trim()}>
+                  {busy === "add" ? "Adding…" : "Add"}
+                </Button>
+              </div>
+              {linkError && (
+                <p role="alert" className="mt-2 font-body text-xs text-danger">
+                  {linkError}
+                </p>
+              )}
+            </form>
+          )}
 
           <details className="mt-4 font-body text-xs text-fg-2">
             <summary className="cursor-pointer font-medium text-fg">How do I add a calendar from another account?</summary>

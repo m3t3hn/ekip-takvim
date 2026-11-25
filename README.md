@@ -29,7 +29,8 @@ Many of us work more than one job, so "is Mert free on Thursday evening?" usuall
 
 - **Day, week and month views** of everyone's free time, with the slots everyone shares marked at a glance.
 - **Find a time:** every gap that suits the whole team, or at least the number of people you need, for as long as you need. It can also find a slot that's free every week for a regular meeting, and slots that suit all but one person.
-- **Other jobs count too:** people share their other calendars with their company account and pick which ones count as busy time.
+- **Other jobs count too:** people share their other calendars with their company account, or add a calendar link from Outlook, iCloud, Proton or Nextcloud, and pick which ones count as busy time.
+- **Up to date:** Google calendars are read again every minute by default.
 - **Time zones done properly:** you see every time on your own clock, alongside each person's local time and fixed company working hours.
 - **Invites in one click:** a prefilled event in Google Calendar or Outlook, or an `.ics` file.
 - **Privacy built in:** colleagues see the titles of company-calendar events only, and personal calendars just show their label ([who sees what](docs/privacy-and-security.md#who-sees-what)).

@@ -1,7 +1,11 @@
 import type { MySettings } from "@/lib/types";
 import { getUser, listCalendars, takenColors } from "./db";
+import { linksAllowed } from "./link-setting";
 
-/** The settings page's view of one person. Calendar ids and names only ever go to their owner. */
+/**
+ * The settings page's view of one person. Calendar ids and names only ever go
+ * to their owner; for a calendar link that's its host, never the link itself.
+ */
 export function mySettings(userId: string): MySettings | null {
   const u = getUser(userId);
   if (!u) return null;
@@ -18,6 +22,7 @@ export function mySettings(userId: string): MySettings | null {
     syncError: u.sync_error,
     calendars: listCalendars(userId).map((c) => ({
       id: c.calendar_id,
+      kind: c.kind,
       summary: c.summary,
       label: c.label,
       included: !!c.included,
@@ -28,5 +33,6 @@ export function mySettings(userId: string): MySettings | null {
       lastSuccess: c.last_success,
       isNew: !c.seen,
     })),
+    linksAllowed: linksAllowed(),
   };
 }

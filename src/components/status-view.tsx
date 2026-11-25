@@ -36,8 +36,9 @@ export function StatusView({
       <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="font-body text-sm text-fg-2">
-            Calendars are read from Google with each person&apos;s own read-only access. Signed-in colleagues see the
-            titles of company-calendar events (not private ones); personal calendars only show their label.
+            Calendars are read from Google with each person&apos;s own read-only access, or from a calendar link they
+            added. Signed-in colleagues see the titles of company-calendar events (not private ones); other calendars
+            only show their label.
           </p>
           <Button variant="tonal" onClick={onRefresh} disabled={syncing}>
             <RefreshCw className={cn("size-4", syncing && "animate-spin")} aria-hidden />
@@ -114,9 +115,15 @@ export function StatusView({
                   <td className="px-3 py-3 text-fg-2">{ago(f.lastSuccess, now)}</td>
                   <td
                     className="px-3 py-3 text-fg-2"
-                    title={f.access === "freebusy" ? "Shared with their company account as “See only free/busy”" : undefined}
+                    title={
+                      f.kind === "link"
+                        ? "Read from a calendar link the person added"
+                        : f.access === "freebusy"
+                          ? "Shared with their company account as “See only free/busy”"
+                          : undefined
+                    }
                   >
-                    {f.access === "freebusy" ? "Free/busy only" : "Events"}
+                    {f.kind === "link" ? "Calendar link" : f.access === "freebusy" ? "Free/busy only" : "Events"}
                   </td>
                   <td className="px-5 py-3 text-right text-fg-2">{f.events}</td>
                 </tr>
@@ -127,7 +134,8 @@ export function StatusView({
 
         <p className="font-body text-xs text-fg-3">
           A failing calendar keeps showing its last good copy. Usual causes: the calendar is no longer shared with the
-          person&apos;s company account, or they removed this app&apos;s access in their Google account.
+          person&apos;s company account, or they removed this app&apos;s access in their Google account. A calendar
+          link fails once it has been reset: its owner removes it and adds the new link.
         </p>
         {data?.version && (
           <p className="font-body text-xs text-fg-3">

@@ -22,6 +22,7 @@ People aren't configured anywhere. Everyone adds themselves by signing in with G
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | | Turn on the [Cloudflare Access check](access-control.md#cloudflare-access). Set both or neither: with only one set, every request gets a `500`. |
 | `EXPOSURE` | `internal` | `internal`: the app is only reachable from your network or VPN, and viewing needs no sign-in. `exposed`: it's reachable from the internet, and every page needs a company sign-in; needs `google_domain` and an https `APP_URL`. See [access control](access-control.md#exposed-sign-in-for-everything). Any other value gets a `500`. |
 | `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD` | | Turn on [basic auth](access-control.md#basic-auth). Set both or neither: with only one set, every request gets a `500`. |
+| `CALENDAR_LINKS` | `on` | Whether people can add [calendar links](user-guide.md#calendar-links): the secret ICS address of a calendar that isn't on Google, which the server then reads. `on`: links to addresses on the public internet. `private`: private and local addresses too, such as a Nextcloud on your own network. `off`: no new links, and the ones already added are neither read nor counted. Any other value acts as `off`, and the log says so at start. The [demo](install.md#try-the-demo) takes links only when it's set. See [what the server checks](privacy-and-security.md#calendar-links). |
 | `PORT`, `HOSTNAME` | `3000`, `0.0.0.0` | Where the server listens. In Docker that's inside the container. With `npm start`, `HOSTNAME` defaults to `127.0.0.1` (this machine only) and is only read from `.env`. |
 | `DEMO_MODE` | | `true` runs the [demo](install.md#try-the-demo) with made-up people. It's ignored while Google sign-in is configured, and it never replaces a database real people have signed in to. |
 
@@ -50,7 +51,7 @@ google_domain: example.com
 | `timezones` | the team's zone | Up to 6 `{ label, zone }` pairs: the clocks in the sidebar and the extra hour columns in the day view. Labels can be up to 20 characters. A viewer whose own zone isn't listed sees it added. |
 | `teams` | none | The teams people can pick on **My settings**. They group the sidebar. |
 | `google_domain` | none | Only Google accounts on this domain can sign in. See [Google setup](google-setup.md#4-allow-only-your-domain). |
-| `refresh_minutes` | `10` | How often every calendar is read from Google, from 1 to 1440. |
+| `refresh_minutes` | `1` | How often every calendar is read from Google, in minutes, from 1 to 1440. [Calendar links](user-guide.md#calendar-links) are read at most every 10 minutes. |
 | `horizon_days` | `60` | How many days ahead calendars are read, from 7 to 366. The past six weeks are always read too. |
 | `display_hours` | `{ start: 8, end: 22 }` | The first and last hour of the day view, on the viewer's clock. Free time is only searched inside them. |
 | `week_starts_on` | `monday` | Or `sunday`. |

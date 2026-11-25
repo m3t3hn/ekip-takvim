@@ -4,6 +4,18 @@ Notable changes to Ekip Takvim. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+### Added
+- **Calendar links.** A calendar that isn't on Google, such as Outlook, iCloud, Proton Calendar or Nextcloud, can count as busy time through its secret iCal (ICS) address, added on *My settings*. The server reads it beside the Google calendars. Only the server keeps the link, encrypted; its owner sees its host, and colleagues see its label only. Each person can add up to 10. `CALENDAR_LINKS=on` (the default) takes addresses on the public internet, `private` also takes private and local ones such as a Nextcloud on your own network, and `off` turns links off. See [calendar links](docs/user-guide.md#calendar-links).
+
+### Changed
+- **Calendars are read every minute by default** (`refresh_minutes: 1`, was 10), so a change in Google Calendar shows up within about a minute. A `refresh_minutes` set in `config/app.yaml` still applies. Calendar links are read at most every 10 minutes; their owner signing in, saving *My settings* or pressing **Refresh from Google** reads them at once.
+- **Google access tokens are kept in the server's memory** for most of their hour, so a sync asks Google for a new one only when it's about to run out. They're never stored or logged.
+- **A 401 from Google no longer signs someone out by itself.** The app asks for a new access token and tries again. Only when Google refuses the person's access, for example because they removed the app in their Google account, are they asked to sign in again; Google is then asked about them at most every 10 minutes.
+- The Status page asks someone to sign in again only while one of their Google calendars counts.
+
+### Security
+- **Next.js 16.4.6**, which fixes two moderate advisories (GHSA-mfr8-8qww-v76h and GHSA-vc7v-qv4w-wrv8). Both concern `'use cache'`, which the app doesn't use.
+
 ## [1.3.0] - 2026-11-18
 
 ### Added

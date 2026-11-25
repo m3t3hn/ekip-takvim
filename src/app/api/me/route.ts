@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isHexColor, normalizeColor } from "@/lib/colors";
 import { validTimezone } from "@/lib/server/config";
 import { deleteUser, getUser, takenColors, updateCalendarChoices, updateUser } from "@/lib/server/db";
-import { revoke } from "@/lib/server/google";
+import { dropAccessToken, revoke } from "@/lib/server/google";
 import { mySettings } from "@/lib/server/me";
 import { SESSION_COOKIE, decrypt } from "@/lib/server/secrets";
 import { sessionUserId } from "@/lib/server/viewer";
@@ -53,7 +53,10 @@ export async function DELETE() {
   if (!user) return unauthorized();
   if (user.refresh_token) {
     try {
-      await revoke(decrypt(user.refresh_token));
+      const refreshToken = decrypt(user.refresh_token);
+      // The access token kept in memory goes too.
+      dropAccessToken(refreshToken);
+      await revoke(refreshToken);
     } catch {}
   }
   deleteUser(user.id);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { dayStart } from "@/lib/time";
 
 // Google sign-in and read-only Calendar access. Nothing here can write to a
@@ -13,7 +14,10 @@ const TIMEOUT_MS = 20_000;
 export class GoogleError extends Error {
   constructor(
     message: string,
-    /** The refresh token no longer works: the person has to sign in again. */
+    /**
+     * Google turned the person's access down: their refresh token (invalid_grant),
+     * or the access token a request used (401). See accessLost in sync.ts.
+     */
     readonly signInAgain = false,
   ) {
     super(message);
@@ -43,6 +47,8 @@ export function authUrl(opts: { origin: string; state: string; domain: string | 
 
 type TokenResponse = {
   access_token: string;
+  /** Seconds the access token lasts. */
+  expires_in?: number;
   refresh_token?: string;
   id_token?: string;
   scope?: string;
@@ -80,6 +86,8 @@ export type SignedIn = {
   domain: string | null;
   refreshToken: string | null;
   accessToken: string;
+  /** When accessToken expires, in ms; null when Google didn't say. */
+  expiresAt: number | null;
   calendarAccess: boolean;
 };
 
@@ -103,13 +111,85 @@ export async function exchangeCode(code: string, origin: string): Promise<Signed
     domain: claims.hd?.toLowerCase() ?? null,
     refreshToken: t.refresh_token ?? null,
     accessToken: t.access_token,
+    expiresAt: expiryOf(t),
     // People can untick calendar access on Google's consent screen.
     calendarAccess: (t.scope ?? "").split(" ").includes(CALENDAR_SCOPE),
   };
 }
 
+// ---------------------------------------------------------------------------
+// An access token lasts an hour, so it's used again until shortly before it
+// expires rather than asked for at every sync. Access tokens are kept in memory
+// only, never stored or logged, on the process-wide global (route handlers and
+// instrumentation are bundled apart), each under a hash of the refresh token it
+// came from: people never share one.
+
+/** An access token is used until this long before Google said it expires. */
+const TOKEN_MARGIN_MS = 5 * 60_000;
+/** Kept for a refresh token: an access token and when it expires, or none (see noToken). */
+type Kept = { token: string | null; expiresAt: number };
+
+const TOKENS = Symbol.for("ekip-takvim.google-tokens");
+const g = globalThis as typeof globalThis & { [TOKENS]?: Map<string, Kept> };
+const tokens = () => (g[TOKENS] ??= new Map());
+
+const keyOf = (refreshToken: string) => createHash("sha256").update(refreshToken).digest("base64url");
+const usable = (kept: Kept | undefined): kept is Kept & { token: string } =>
+  !!kept?.token && Date.now() < kept.expiresAt - TOKEN_MARGIN_MS;
+/** No token to use again; a token asked for before this was kept isn't kept or used either. */
+const noToken = (): Kept => ({ token: null, expiresAt: Date.now() });
+
+/** When a token answer's access token expires, or null when the answer doesn't say. */
+function expiryOf(t: TokenResponse): number | null {
+  const seconds = t.expires_in;
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null;
+}
+
+function keep(key: string, kept: Kept): void {
+  const all = tokens();
+  // What expired over an hour ago goes, such as what was kept for a refresh token a sign-in replaced.
+  for (const [k, v] of all) if (v.expiresAt < Date.now() - 3_600_000) all.delete(k);
+  all.set(key, kept);
+}
+
+/**
+ * An access token for this refresh token: the one kept for it, until
+ * TOKEN_MARGIN_MS before it expires, else a new one from Google, kept when
+ * Google says how long it lasts.
+ */
 export async function accessToken(refreshToken: string): Promise<string> {
-  return (await tokenRequest({ refresh_token: refreshToken, grant_type: "refresh_token" })).access_token;
+  const key = keyOf(refreshToken);
+  const before = tokens().get(key);
+  if (usable(before)) return before.token;
+  const t = await tokenRequest({ refresh_token: refreshToken, grant_type: "refresh_token" });
+  const now = tokens().get(key);
+  // Something was kept while this one was asked for: a sign-in's token, a newer
+  // one, or none. That's used, or else a token asked for after it: one asked for
+  // before a sign-in may lack what the sign-in allowed.
+  if (now && now !== before) return usable(now) ? now.token : accessToken(refreshToken);
+  const expiresAt = expiryOf(t);
+  if (expiresAt !== null) keep(key, { token: t.access_token, expiresAt });
+  return t.access_token;
+}
+
+/**
+ * After a sign-in: its own access token, which carries what the person just
+ * allowed, replaces whatever was kept for the refresh token now stored for them.
+ */
+export function keepSignInToken(refreshToken: string, signedIn: Pick<SignedIn, "accessToken" | "expiresAt">): void {
+  const { accessToken: token, expiresAt } = signedIn;
+  keep(keyOf(refreshToken), expiresAt === null ? noToken() : { token, expiresAt });
+}
+
+/**
+ * Google turned down the access token kept for this refresh token: the next
+ * request asks for a new one. Given the token turned down, only while that's
+ * the one kept, so one kept since (a sign-in's) stays.
+ */
+export function dropAccessToken(refreshToken: string, turnedDown?: string): void {
+  const key = keyOf(refreshToken);
+  if (turnedDown !== undefined && tokens().get(key)?.token !== turnedDown) return;
+  keep(key, noToken());
 }
 
 export async function revoke(token: string): Promise<void> {
@@ -219,6 +299,9 @@ export type Busy = {
   details?: EventDetails;
 };
 
+/** Longest title, description and place kept for an event, from Google or a calendar link. */
+export const EVENT_TEXT_LIMITS = { title: 200, description: 8000, location: 500 } as const;
+
 export type EventDetails = {
   /** Plain text: Google's HTML is flattened, links kept as URLs. */
   description?: string;
@@ -270,7 +353,7 @@ export function busyFromEvent(e: GoogleEvent, timezone: string): Busy | null {
     return null;
   }
   if (!(end > start)) return null;
-  const title = e.summary?.trim().slice(0, 200);
+  const title = e.summary?.trim().slice(0, EVENT_TEXT_LIMITS.title);
   const isPrivate = e.visibility === "private" || e.visibility === "confidential";
   const details = eventDetails(e);
   return {
@@ -290,8 +373,8 @@ const httpUrl = (value: string | undefined) => (value && /^https?:\/\//i.test(va
 function eventDetails(e: GoogleEvent): EventDetails | undefined {
   const video = e.conferenceData?.entryPoints?.find((p) => p.entryPointType === "video")?.uri;
   const details: EventDetails = {
-    ...(e.description?.trim() ? { description: htmlToText(e.description).slice(0, 8000) } : {}),
-    ...(e.location?.trim() ? { location: e.location.trim().slice(0, 500) } : {}),
+    ...(e.description?.trim() ? { description: htmlToText(e.description).slice(0, EVENT_TEXT_LIMITS.description) } : {}),
+    ...(e.location?.trim() ? { location: e.location.trim().slice(0, EVENT_TEXT_LIMITS.location) } : {}),
     ...(httpUrl(e.hangoutLink ?? video) ? { meetLink: httpUrl(e.hangoutLink ?? video) } : {}),
     ...(httpUrl(e.htmlLink) ? { htmlLink: httpUrl(e.htmlLink) } : {}),
   };

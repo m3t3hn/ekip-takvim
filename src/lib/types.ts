@@ -72,10 +72,14 @@ export type AvailabilityResponse = {
   people: PersonAvailability[];
 };
 
+/** "google": one of the person's Google calendars; "link": read from a calendar link they added. */
+export type CalendarKind = "google" | "link";
+
 export type CalendarStatus = {
   person: string;
   personId: string;
   label: string;
+  kind: CalendarKind;
   /** "events" reads the calendar's events; "freebusy" when it's only shared as free/busy. */
   access: "events" | "freebusy";
   state: "ok" | "error" | "pending";
@@ -92,7 +96,7 @@ export type StatusResponse = {
   syncedAt: number | null;
   syncing: boolean;
   calendars: CalendarStatus[];
-  /** People whose Google access needs renewing: they have to sign in again. */
+  /** People whose Google access needs renewing while a Google calendar of theirs counts: they have to sign in again. */
   signInAgain: { personId: string; person: string; error: string }[];
 };
 
@@ -120,10 +124,11 @@ export type ClientSettings = {
   signIn: "google" | "demo" | null;
 };
 
-/** One of the viewer's Google calendars, as shown on their settings page. */
+/** One of the viewer's calendars, from Google or a calendar link, as shown on their settings page. */
 export type MyCalendar = {
   id: string;
-  /** Name in Google Calendar. Only ever sent to its owner. */
+  kind: CalendarKind;
+  /** Name in Google Calendar; for a calendar link, the link's host. Only ever sent to its owner. */
   summary: string;
   label: string;
   included: boolean;
@@ -152,6 +157,8 @@ export type MySettings = {
   tokenError: string | null;
   /** Why the calendar list couldn't be read from Google on the last try. */
   syncError: string | null;
+  /** Whether this server takes new calendar links (CALENDAR_LINKS). */
+  linksAllowed: boolean;
 };
 
 /** An event's details, for someone allowed to see its title. */

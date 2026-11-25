@@ -8,6 +8,8 @@
    3. Open the email Google then sends to your company address, and press **Add this calendar**. Until you do, the calendar isn't in your company account's list. (Signed in to Google Calendar as your company account, **Other calendars → + → Subscribe to calendar** with the other account's address does the same.)
 
    *See only free/busy* is enough. *See all event details* also lets the app tell tentative and all-day events apart.
+
+   A calendar that isn't on Google, such as an Outlook, iCloud, Proton or Nextcloud one, is added with its [calendar link](#calendar-links) instead.
 2. **Sign in** to Ekip Takvim with your company Google account, and allow calendar access.
 3. **On My settings:**
    - Pick your team and where you are.
@@ -20,6 +22,30 @@
 **Sharing another calendar later?** It appears on *My settings* marked **New**, and a number shows on your avatar, after the next sync or after **Refresh from Google**. Tick it and save; until then it doesn't count.
 
 **Leaving?** **Remove me** on *My settings* takes you off the app, deletes your data and gives the Google access back.
+
+## Calendar links
+
+A calendar that isn't on Google can count as your busy time too, through its calendar link: the secret iCal (ICS) address its service gives out so other apps can read it. You still sign in with your company Google account.
+
+1. **Copy the link** where the calendar's service keeps it:
+
+   | Service | Where |
+   |---|---|
+   | Outlook | **Publish calendar**, in Outlook's calendar settings: publish the calendar, then copy its ICS link. |
+   | iCloud | **Public calendar**, in the calendar's sharing options: turn it on, then copy the link. |
+   | Proton Calendar | **Share via link**, in the calendar's settings. |
+   | Nextcloud | **Copy subscription link**, in the calendar's menu. |
+
+   A link that starts with `webcal://` works as it is. A Google calendar of another account is better shared with your company account, as [above](#adding-yourself).
+2. **On My settings**, under your calendars, paste it into **Add a calendar link**, give it a label, and press **Add**. The app reads the calendar straight away. A link that doesn't work is turned down with the reason ([what each one means](troubleshooting.md#calendar-links)); one that works is listed with your calendars under its host name, ticked.
+
+From then on it's read again about every 10 minutes, and its tick and label work like your Google calendars': untick it and save, and it stops counting. You can add up to 10.
+
+**The link is a secret.** Anyone who has it can read the calendar, often with every event's details. Only the server keeps it, encrypted: the app shows nobody the link, not even you, only its host, and colleagues only ever see the label. Don't paste it anywhere else. If it gets out, reset it in the calendar's service (stop publishing or sharing, then start again), then remove the calendar here and add the new link.
+
+**Removing one:** press **Remove** next to it, then **Yes, remove**. Its events leave the app straight away. To stop the link working at all, also stop publishing or sharing the calendar in its service.
+
+Changes to the calendar show up within about 10 minutes, once its service has updated the file it serves, which can take a while on some services. To read your links sooner, press **Refresh from Google** on *My settings*.
 
 ## The views
 
@@ -68,6 +94,8 @@ You're free when none of your ticked calendars has an event at that time.
 | Tentative, or you replied *maybe* | Busy, drawn striped |
 | An all-day event shown as busy (holiday, out of office) | Busy all day, in the all-day row |
 | Anything on a calendar shared as *free/busy only* | Busy, since Google says nothing more |
+
+A calendar link's events follow the same rules as far as the calendar's file tells: cancelled ones and ones shown as free don't count, and tentative ones are striped. An invitation you declined still counts as busy if the file lists it. [Known limits](troubleshooting.md#calendar-links).
 
 ## Working hours and time zones
 

@@ -1,15 +1,38 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { PRESET_COLORS, normalizeColor, pickColor } from "@/lib/colors";
-import type { Person } from "@/lib/types";
+import type { CalendarKind, Person } from "@/lib/types";
 import { slugify } from "./config";
+import { linksAllowed } from "./link-setting";
+import { decrypt, encrypt } from "./secrets";
 
 // People sign in with Google, so everything about them lives here: who they
-// are, which of their calendars count, and the busy times last synced from
-// those calendars, with event titles and details. Who may see a title is
-// decided in sync.ts (mayShowTitle).
+// are, which of their calendars count (Google calendars, and calendar links
+// they added), and the busy times last synced from those calendars, with event
+// titles and details. Who may see a title is decided in sync.ts (mayShowTitle).
+
+// What a calendar link needs on its calendar's row. A new database gets these
+// columns from SCHEMA, an older one from migrate(): the same definitions.
+const LINK_COLUMNS = [
+  // A Google calendar, or a calendar link the person added.
+  "kind TEXT NOT NULL DEFAULT 'google' CHECK (kind IN ('google', 'link'))",
+  // The link, encrypted (see secrets.ts): its path and query are its secret.
+  "link TEXT",
+  // From the link's last full read, to ask its server what changed since.
+  "link_etag TEXT",
+  "link_last_modified TEXT",
+  "link_full_read INTEGER",
+  // The sync window that read's blocks cover: once the window moves, only a full read covers it.
+  "link_window_from INTEGER",
+  "link_window_to INTEGER",
+  // When the link was last asked for, whatever came of it: rounds wait a while after (see sync.ts).
+  "link_requested INTEGER",
+];
+
+/** Calendar links list after the person's Google calendars, which syncCalendarList numbers from 0. */
+const LINK_POSITIONS = 1000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -29,8 +52,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE TABLE IF NOT EXISTS calendars (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  calendar_id TEXT NOT NULL,
-  summary TEXT NOT NULL,
+  calendar_id TEXT NOT NULL,          -- Google's id, or "link-" and a random UUID
+  summary TEXT NOT NULL,              -- the name in Google Calendar, or a calendar link's host
   label TEXT NOT NULL,
   access TEXT NOT NULL CHECK (access IN ('events', 'freebusy')),
   is_primary INTEGER NOT NULL DEFAULT 0,
@@ -41,6 +64,7 @@ CREATE TABLE IF NOT EXISTS calendars (
   error TEXT,
   events INTEGER NOT NULL DEFAULT 0,
   seen INTEGER NOT NULL DEFAULT 1,     -- 0: shared after they joined and not reviewed yet
+  ${LINK_COLUMNS.join(",\n  ")},
   PRIMARY KEY (user_id, calendar_id)
 );
 CREATE TABLE IF NOT EXISTS busy (
@@ -92,6 +116,18 @@ export type CalendarRow = {
   error: string | null;
   events: number;
   seen: number;
+  kind: CalendarKind;
+  /** A calendar link, encrypted; null for a Google calendar. Read it with linkOf. */
+  link: string | null;
+  link_etag: string | null;
+  link_last_modified: string | null;
+  /** When the link was last read in full, rather than answered "not modified". */
+  link_full_read: number | null;
+  /** The sync window that full read's blocks cover. */
+  link_window_from: number | null;
+  link_window_to: number | null;
+  /** When the link was last asked for, whatever came of it; null if never. */
+  link_requested: number | null;
 };
 
 export type BusyRow = {
@@ -149,6 +185,11 @@ export function migrate(conn: DatabaseSync): void {
   if (calendarColumns.length && !calendarColumns.includes("seen")) {
     conn.exec("ALTER TABLE calendars ADD COLUMN seen INTEGER NOT NULL DEFAULT 1");
   }
+  // Before calendar links, every calendar was a Google one.
+  for (const column of LINK_COLUMNS) {
+    const name = column.split(" ")[0];
+    if (calendarColumns.length && !calendarColumns.includes(name)) conn.exec(`ALTER TABLE calendars ADD COLUMN ${column}`);
+  }
   // Labels used to default to the calendar's name, which is often its owner's address.
   if (calendarColumns.length) {
     conn.exec("UPDATE calendars SET label = CASE WHEN is_primary = 1 THEN 'Work' ELSE 'Personal' END WHERE label LIKE '%_@_%._%'");
@@ -199,15 +240,29 @@ export function getUser(id: string): UserRow | null {
   return (db().prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined) ?? null;
 }
 
+/** Someone's calendars, or everyone's: Google calendars first, then calendar links. */
 export function listCalendars(userId?: string): CalendarRow[] {
-  const sql = "SELECT * FROM calendars" + (userId ? " WHERE user_id = ?" : "") + " ORDER BY user_id, position";
+  const sql = "SELECT * FROM calendars" + (userId ? " WHERE user_id = ?" : "") + " ORDER BY user_id, kind = 'link', position";
   const stmt = db().prepare(sql);
   return (userId ? stmt.all(userId) : stmt.all()) as CalendarRow[];
 }
 
+/**
+ * Whether a calendar counts as its owner's busy time: they ticked it, and a
+ * calendar link only while this server takes calendar links (CALENDAR_LINKS).
+ */
+export function countsAsBusy(c: Pick<CalendarRow, "included" | "kind">): boolean {
+  return !!c.included && (c.kind !== "link" || linksAllowed());
+}
+
+/** countsAsBusy in SQL, for the calendars table as `c`. */
+function countedSql(): string {
+  return linksAllowed() ? "c.included = 1" : "c.included = 1 AND c.kind <> 'link'";
+}
+
 /** Everyone who signed in, with the labels of the calendars they count. */
 export function listPeople(): Person[] {
-  const cals = listCalendars().filter((c) => c.included);
+  const cals = listCalendars().filter(countsAsBusy);
   return listUsers().map((u) => ({
     id: u.id,
     name: u.name,
@@ -286,6 +341,11 @@ export function updateUser(id: string, patch: { team?: string | null; timezone?:
   db()
     .prepare("UPDATE users SET team = ?, timezone = ?, color = ? WHERE id = ?")
     .run(patch.team !== undefined ? patch.team : u.team, patch.timezone ?? u.timezone, patch.color ?? u.color, id);
+  // A calendar link's all-day events and times without a zone are read in the
+  // person's zone: in a new one, "not modified" doesn't keep its blocks.
+  if (patch.timezone !== undefined && patch.timezone !== u.timezone) {
+    db().prepare("UPDATE calendars SET link_full_read = NULL WHERE user_id = ? AND kind = 'link'").run(id);
+  }
 }
 
 export function setTokenError(id: string, error: string | null): void {
@@ -320,11 +380,11 @@ export function safeLabel(label: string, primary: boolean): string {
 }
 
 /**
- * Match the stored calendars to the list Google returned: new ones are added
- * (only the primary counted by default), gone ones dropped, labels and
+ * Match the stored Google calendars to the list Google returned: new ones are
+ * added (only the primary counted by default), gone ones dropped, labels and
  * choices kept. Calendars that turn up after someone's first sign-in are
  * flagged as new, so they're asked whether those count instead of them
- * silently not counting.
+ * silently not counting. Calendar links aren't Google's, so they stay as they are.
  */
 export function syncCalendarList(
   userId: string,
@@ -332,7 +392,7 @@ export function syncCalendarList(
 ): void {
   transaction(() => {
     const conn = db();
-    const known = new Map(listCalendars(userId).map((c) => [c.calendar_id, c]));
+    const known = new Map(listCalendars(userId).filter((c) => c.kind === "google").map((c) => [c.calendar_id, c]));
     const firstList = known.size === 0;
     list.forEach((c, position) => {
       const prev = known.get(c.id);
@@ -380,6 +440,105 @@ export function updateCalendarChoices(userId: string, choices: { id: string; lab
 export function newCalendarCount(userId: string): number {
   const row = db().prepare("SELECT COUNT(*) AS n FROM calendars WHERE user_id = ? AND seen = 0").get(userId) as { n: number };
   return row.n;
+}
+
+/** A link's host, as shown for it: the rest of the link is its secret. */
+function linkHost(link: string): string {
+  return new URL(link).hostname.replace(/^\[(.*)\]$/, "$1");
+}
+
+/**
+ * Add a calendar link for someone: it counts straight away, and lists after
+ * their Google calendars. Its host is its name, for its owner only; the link
+ * itself is only stored encrypted. Returns the new calendar's id.
+ */
+export function addLinkCalendar(userId: string, link: string, label: string): string {
+  const conn = db();
+  const id = `link-${randomUUID()}`;
+  const { last } = conn
+    .prepare("SELECT MAX(position) AS last FROM calendars WHERE user_id = ? AND kind = 'link'")
+    .get(userId) as { last: number | null };
+  conn
+    .prepare(
+      `INSERT INTO calendars (user_id, calendar_id, summary, label, access, is_primary, included, position, seen, kind, link)
+       VALUES (?, ?, ?, ?, 'events', 0, 1, ?, 1, 'link', ?)`,
+    )
+    .run(userId, id, linkHost(link), safeLabel(label, false), Math.max(LINK_POSITIONS, (last ?? 0) + 1), encrypt(link));
+  return id;
+}
+
+/** Remove one of someone's calendar links, with its busy times. Any other calendar stays: false. */
+export function removeLinkCalendar(userId: string, id: string): boolean {
+  return transaction(() => {
+    const conn = db();
+    const removed = conn.prepare("DELETE FROM calendars WHERE user_id = ? AND calendar_id = ? AND kind = 'link'").run(userId, id);
+    if (Number(removed.changes) === 0) return false;
+    conn.prepare("DELETE FROM busy WHERE user_id = ? AND calendar_id = ?").run(userId, id);
+    return true;
+  });
+}
+
+/**
+ * Someone's calendar link, decrypted; null when the id isn't one of their
+ * calendar links. Throws when what's stored can't be decrypted, as after
+ * SESSION_SECRET changed.
+ */
+export function linkOf(userId: string, id: string): string | null {
+  const row = db()
+    .prepare("SELECT link FROM calendars WHERE user_id = ? AND calendar_id = ? AND kind = 'link'")
+    .get(userId, id) as { link: string | null } | undefined;
+  return row ? decrypt(row.link ?? "") : null;
+}
+
+/** When one of someone's calendar links was last asked for; null if never, or if it isn't one. */
+export function linkRequested(userId: string, id: string): number | null {
+  const row = db()
+    .prepare("SELECT link_requested FROM calendars WHERE user_id = ? AND calendar_id = ? AND kind = 'link'")
+    .get(userId, id) as { link_requested: number | null } | undefined;
+  return row?.link_requested ?? null;
+}
+
+/** A calendar link is asked for, at `at`: whatever comes of it, rounds count from then (see sync.ts). */
+export function markLinkRequested(userId: string, id: string, at = Date.now()): void {
+  db()
+    .prepare("UPDATE calendars SET link_requested = ? WHERE user_id = ? AND calendar_id = ? AND kind = 'link'")
+    .run(at, userId, id);
+}
+
+/** Sent back to the server as a request header, so only a value that can be one is kept. */
+const headerSafe = (value: string | null) => (value && /^[\x20-\x7e]+$/.test(value) ? value : null);
+
+/**
+ * After a calendar link was read in full: what its server said about this
+ * version, to ask what changed since, and the sync window its blocks cover.
+ */
+export function setLinkVersion(
+  userId: string,
+  calendarId: string,
+  version: { etag: string | null; lastModified: string | null; window: { from: Date; to: Date } },
+): void {
+  db()
+    .prepare(
+      `UPDATE calendars SET link_etag = ?, link_last_modified = ?, link_full_read = ?, link_window_from = ?, link_window_to = ?
+       WHERE user_id = ? AND calendar_id = ? AND kind = 'link'`,
+    )
+    .run(
+      headerSafe(version.etag),
+      headerSafe(version.lastModified),
+      Date.now(),
+      version.window.from.getTime(),
+      version.window.to.getTime(),
+      userId,
+      calendarId,
+    );
+}
+
+/** A calendar link's server said nothing changed: its busy times stand, as of now. */
+export function setLinkUnchanged(userId: string, calendarId: string): void {
+  const now = Date.now();
+  db()
+    .prepare("UPDATE calendars SET error = NULL, last_success = ?, last_attempt = ? WHERE user_id = ? AND calendar_id = ? AND kind = 'link'")
+    .run(now, now, userId, calendarId);
 }
 
 export function markCalendarAttempt(userId: string, calendarId: string): void {
@@ -460,7 +619,7 @@ export function getEventByRef(ref: string): EventRow | null {
         `SELECT b.*, c.is_primary, c.label, u.name AS person, u.timezone AS person_tz FROM busy b
          JOIN calendars c ON c.user_id = b.user_id AND c.calendar_id = b.calendar_id
          JOIN users u ON u.id = b.user_id
-         WHERE b.ref = ? AND c.included = 1`,
+         WHERE b.ref = ? AND ${countedSql()}`,
       )
       .get(ref) as EventRow | undefined) ?? null
   );
@@ -472,7 +631,7 @@ export function busyBetween(from: number, to: number): BusyRow[] {
     .prepare(
       `SELECT b.* FROM busy b
        JOIN calendars c ON c.user_id = b.user_id AND c.calendar_id = b.calendar_id
-       WHERE c.included = 1 AND b.start_ms < ? AND b.end_ms > ?
+       WHERE ${countedSql()} AND b.start_ms < ? AND b.end_ms > ?
        ORDER BY b.start_ms`,
     )
     .all(to, from) as BusyRow[];

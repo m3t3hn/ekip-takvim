@@ -24,7 +24,7 @@ const ZoneSchema = z.object({
 const ConfigSchema = z.object({
   /** Defaults to the server's zone (TZ), which is UTC in a plain container. */
   timezone: z.string().optional(),
-  refresh_minutes: z.number().int().min(1).max(1440).default(10),
+  refresh_minutes: z.number().int().min(1).max(1440).default(1),
   horizon_days: z.number().int().min(7).max(366).default(60),
   display_hours: z
     .object({

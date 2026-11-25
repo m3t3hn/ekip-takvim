@@ -10,7 +10,7 @@ Logs are JSON lines. The `starting` line shows:
 - the version,
 - where the config came from,
 - whether sign-in is set up,
-- which access checks are on.
+- which access checks are on, and where calendar links may go (`CALENDAR_LINKS`).
 
 The **Status** page in the app shows each calendar's sync state and errors.
 
@@ -53,6 +53,31 @@ The Status page shows Google's reason. Usually the calendar is no longer shared 
 **Times look off by a few hours.**
 Check the team's `timezone` (or `TZ`) and each person's zone on *My settings*. Viewers always see their browser's zone, unless they picked another clock in the sidebar.
 
+## Calendar links
+
+Adding a [calendar link](user-guide.md#calendar-links) that can't be read shows why, under the form. A link that stops working later shows why on *My settings* and the Status page, and its calendar keeps its last good copy. In the log, the `calendar link failed` line names the person and the calendar's label, never the link.
+
+| Message | What it means |
+|---|---|
+| That doesn't look like a calendar link. | It isn't an `https://`, `http://` or `webcal://` address, it holds a user name or password, it's longer than 2048 characters, or it redirects to such an address. Copy it again from the calendar's service. |
+| That link points to a private network address, which this server doesn't allow. | The host is, or looks up to, an address on a private or local network. To allow those, the server needs `CALENDAR_LINKS=private` ([configuration](configuration.md#environment-variables)). |
+| Couldn't reach that address. | The host name doesn't exist, or the connection was refused or broke off. Check the link, or try again later. |
+| The calendar took too long to answer. | No full answer within 20 seconds. Try again later. |
+| That calendar is too big. | It's over 10 MB. |
+| That link redirects too many times. | More than 5 redirects. |
+| The link didn't work. It may have been reset; copy it again. | The calendar's server answered `401`, `403` or `404` when the link was added: usually the link was reset, or publishing or sharing was stopped. Copy the current link from the calendar's service and add it. |
+| The link didn't work. It may have been reset: remove this calendar and add the new link. | The same answer, for a link already added, when it's read again. A calendar can't take a new link: copy the current link, then remove the calendar and add the new link. |
+| The calendar's server answered 500. | Or another number: the HTTP status it answered, other than `401`, `403` and `404`. Usually a passing problem on that server. |
+| That address didn't return a calendar. | The answer wasn't an iCalendar file, often a web page: a sign-in page, or the calendar's page for browsers rather than its ICS link. |
+| Couldn't read that calendar. | It starts like a calendar but can't be read as one. |
+| This server's secret changed, so the stored link can't be read. Remove this calendar and add its link again. | `SESSION_SECRET` changed, and the link was stored with the old one. Do as it says. |
+| This server doesn't take calendar links. | `CALENDAR_LINKS` is `off`, or something other than `on`, `private` or `off`. In the demo, it isn't set. |
+| You can add up to 10 calendar links. Remove one first. | The limit per person. |
+
+Known limits:
+- **A declined invitation still counts as busy** when the calendar's file lists it: the app doesn't read who declined.
+- **Extra dates (`RDATE`) and "this and following" changes (`RANGE=THISANDFUTURE`) aren't read.** Dates added to a repeating event outside its rule don't count, and a change the file gives as one change to an occurrence and all after it only moves that one occurrence.
+
 ## The server
 
 **Every page sends you to Sign in.**
@@ -80,5 +105,8 @@ You switched to a folder instead of the volume, and the folder isn't owned by th
 
 **The log says `DEMO_MODE ignored`.**
 `DEMO_MODE=true` is set next to real Google settings. Remove it from `.env`.
+
+**The log says `CALENDAR_LINKS must be on, private or off`.**
+`CALENDAR_LINKS` has another value, so calendar links are off: none can be added, and the ones already there are neither read nor counted. Set it to one of the three, or remove it for `on`.
 
 Still stuck? [Open an issue](https://github.com/m3t3hn/ekip-takvim/issues/new/choose) with the version, your setup and the relevant log lines. Leave out secrets.

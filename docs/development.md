@@ -47,7 +47,7 @@ The database is `data/ekip-takvim.sqlite`. Both it and `config/app.yaml` are git
 ## How it works
 
 - **The app:** a Next.js app (App Router), running as one Node.js process.
-- **Sync** (`src/lib/server/sync.ts`): starts with the server (`src/instrumentation.ts`). Every `refresh_minutes` it reads each person's ticked calendars from Google with their own refresh token, and stores their busy times in SQLite (`node:sqlite`, `src/lib/server/db.ts`).
+- **Sync** (`src/lib/server/sync.ts`): starts with the server (`src/instrumentation.ts`). Every `refresh_minutes` it reads each person's ticked calendars from Google with their own refresh token, and stores their busy times in SQLite (`node:sqlite`, `src/lib/server/db.ts`). The access token a refresh token gets is kept in memory, under a hash of that refresh token, and used again until five minutes before it expires (`accessToken` in `src/lib/server/google.ts`). While rounds come more often than every 10 minutes, a round leaves alone a calendar link asked for in the last 10 minutes (`LINK_FLOOR_MS`), and someone whose refresh token Google refused in that time (`REFUSED_FLOOR_MS`).
 - **The views** ask `/api/availability` for busy blocks per person. The server decides which titles each viewer may see (`mayShowTitle`).
 - **Free-time maths** run in the browser and are shared by every view: free time, shared slots and "almost works" (`src/lib/availability.ts`, `src/lib/intervals.ts`).
 - **Sign-in** (`src/app/auth/*`, `src/lib/server/google.ts`) is a standard OAuth code flow. Refresh tokens are encrypted, and sessions are signed cookies checked against the database (`src/lib/server/secrets.ts`, `src/lib/server/viewer.ts`).

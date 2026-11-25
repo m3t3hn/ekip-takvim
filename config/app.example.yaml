@@ -35,8 +35,9 @@
 # to your Google Workspace.
 # google_domain: example.com
 
-# How often everyone's calendars are read from Google, in minutes. Default: 10.
-# refresh_minutes: 10
+# How often everyone's calendars are read from Google, in minutes. Calendar
+# links are read at most every 10 minutes. Default: 1.
+# refresh_minutes: 1
 
 # How many days ahead calendars are read. Default: 60.
 # horizon_days: 60
