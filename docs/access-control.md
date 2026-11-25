@@ -12,11 +12,13 @@ By default (`EXPOSURE=internal`), Ekip Takvim shows everyone's busy times to any
 
 Whichever you pick, the app needs HTTPS: Google only sends people back to `https://` addresses, apart from `http://localhost`. Set `APP_URL` to that address.
 
+[Booking links](user-guide.md#booking-links) are the one exception: with `BOOKING_LINKS=on`, their pages are for anyone. See [booking pages](#booking-pages) for what to open.
+
 ## Exposed: sign-in for everything
 
 Set `EXPOSURE=exposed` in `.env` and run `docker compose up -d`. The app can then sit on the open internet:
 
-- **Signing in:** Every page needs a sign-in with a company Google account. People who aren't signed in land on a sign-in page, and the API answers `401`. Only the sign-in routes, `/healthz`, the icons and the manifest stay open.
+- **Signing in:** Every page needs a sign-in with a company Google account. People who aren't signed in land on a sign-in page, and the API answers `401`. Only the sign-in routes, `/healthz`, the icons and the manifest stay open, and the [booking pages](#booking-pages) while `BOOKING_LINKS=on`.
 - **Joining:** Signing in also asks for read access to the person's calendars. Anyone who signs in to look joins the team calendar; that's the point, but say so when you invite people.
 - **Requirements:** `google_domain` must be set in `config/app.yaml`, and `APP_URL` must be `https://` (`http://localhost` is allowed for trying it out). Without them the app serves nothing and logs why, so no account from another domain can get in, and the session cookie never travels in the clear.
 
@@ -24,7 +26,15 @@ The app sends the usual hardening headers on every response: HSTS, no framing by
 
 ## Reverse proxy
 
-`compose.yaml` makes the app listen on `127.0.0.1:3000`, so only the server itself can reach it. Put a reverse proxy on the same server in front of it. The app builds its links from `APP_URL`, so the proxy needs no special headers.
+`compose.yaml` makes the app listen on `127.0.0.1:3000`, so only the server itself can reach it. Put a reverse proxy on the same server in front of it. The app builds its links from `APP_URL`, so the proxy needs no special headers for them.
+
+One header matters for [booking pages](#booking-pages): the app limits booking tries per visitor address, and takes a visitor's address from Cloudflare's `CF-Connecting-IP` header when there is one, else from the last `X-Forwarded-For` entry. So without Cloudflare in front, have the proxy drop a `CF-Connecting-IP` header that visitors send:
+
+- **Caddy:** `header_up -CF-Connecting-IP` inside `reverse_proxy 127.0.0.1:3000 { … }`.
+- **nginx:** `proxy_set_header CF-Connecting-IP "";` next to the other `proxy_set_header` lines.
+- **Traefik:** a headers middleware that sets `CF-Connecting-IP` to empty, with the labels `traefik.http.middlewares.ekip-takvim-ip.headers.customrequestheaders.CF-Connecting-IP=` and `traefik.http.routers.ekip-takvim.middlewares=ekip-takvim-ip`.
+
+Otherwise a visitor can choose their own address and get around the limit per address. The limit per link, 30 bookings an hour, still holds. With Cloudflare in front, leave the header alone: it's how the app tells visitors apart.
 
 ### Caddy
 
@@ -113,3 +123,20 @@ BASIC_AUTH_PASSWORD=…   # long and random, e.g. openssl rand -base64 24
 ```
 
 Then run `docker compose up -d`. The browser now asks for the username and password on every page, except `/healthz` and the icons. Only use it over HTTPS. Everyone shares the password, so change it when someone leaves.
+
+## Booking pages
+
+With `BOOKING_LINKS=on` ([configuration](configuration.md#environment-variables)), people can make [booking links](user-guide.md#booking-links) for anyone outside the team. Their pages are public:
+
+- **What's open:** `/book/…`, the booking and cancel pages, and `/api/book/…`, what those pages load and send. They pass the app's own checks: the Cloudflare Access token, basic auth and the sign-in that `EXPOSURE=exposed` asks for. Every other address is checked as before, `/api/me/…` included.
+- **What visitors get:** the host's name, the link's title, description and length, whether it's a Google Meet call, its free times, and which of its days are full. Never event titles, calendar labels, busy times, the host's email or anyone else's bookings. See [booking links](privacy-and-security.md#booking-links).
+- **Search engines** are asked not to list them (`X-Robots-Tag: noindex`).
+- **No Referer:** nothing those pages ask for carries their address (`Referrer-Policy: no-referrer`), as a cancel page's address is its booking's cancel link.
+- **With `BOOKING_LINKS=off`** (the default), those addresses are checked like any other, and they answer `404`.
+
+The start-up log says whether booking pages are public. What to open in front of the app, so visitors outside the team reach those two paths and nothing else:
+
+- **Exposed, or the app's own basic auth:** nothing; the app already lets them through.
+- **Cloudflare Access:** in Cloudflare Zero Trust, add a second self-hosted application on the same hostname for the paths `book/`, `api/book/` and `_next/static/`, with a *Bypass* policy for everyone. `_next/static/` holds the app's scripts, styles and fonts, which the pages need to load; nothing about anyone is in them. The app's own token check (`CF_ACCESS_TEAM_DOMAIN`) lets the booking paths through by itself.
+- **VPN:** visitors aren't on it. Make the app's hostname also resolve publicly to a reverse proxy, or a Cloudflare Tunnel, that forwards only `/book/`, `/api/book/` and `/_next/static/` to the app and refuses the rest. Keep the same hostname as `APP_URL`: the links people copy and the cancel links visitors get use it.
+- **Your own access proxy:** the same three paths, unauthenticated.

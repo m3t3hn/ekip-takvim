@@ -126,6 +126,8 @@ export function App(props: {
   serverZone: string;
   serverNow: number;
   initialQuery: Record<string, string>;
+  /** This server takes booking links (BOOKING_LINKS=on). */
+  bookingLinks: boolean;
 }) {
   return (
     <ToastProvider>
@@ -140,6 +142,7 @@ function Shell({
   serverZone,
   serverNow,
   initialQuery,
+  bookingLinks,
 }: {
   settings: ClientSettings;
   today: string;
@@ -147,6 +150,7 @@ function Shell({
   serverZone: string;
   serverNow: number;
   initialQuery: Record<string, string>;
+  bookingLinks: boolean;
 }) {
   const [state, setState] = useState(() => parseState(initialQuery, settings, serverToday));
   const [selection, setSelection] = useState<GridSelection | null>(null);
@@ -349,6 +353,7 @@ function Shell({
         go({ view: "schedule" });
         setDrawer(false);
       }}
+      bookingLinks={bookingLinks && settings.viewer !== null}
       footer={
         <div className="flex flex-col gap-1.5 font-body text-xs leading-relaxed text-fg-3">
           <div>
@@ -534,7 +539,7 @@ function Shell({
           )}
         </main>
       </div>
-      {help && <HelpDialog onClose={() => setHelp(false)} />}
+      {help && <HelpDialog bookingLinks={bookingLinks} onClose={() => setHelp(false)} />}
       {invite && (
         <InviteDialog
           day={invite.day}

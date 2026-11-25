@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarSearch, ChevronDown, ChevronLeft, ChevronRight, Search, TriangleAlert } from "lucide-react";
+import { CalendarClock, CalendarSearch, ChevronDown, ChevronLeft, ChevronRight, Search, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import type { Hours } from "@/lib/availability";
 import { MINUTE, addDays, formatHours, formatTime, hourLabel, startOfWeek, zoneLabel } from "@/lib/time";
@@ -27,6 +27,7 @@ export function Sidebar({
   zones,
   clocks,
   onFind,
+  bookingLinks = false,
   footer,
 }: {
   people: Person[];
@@ -50,6 +51,8 @@ export function Sidebar({
   /** Clocks for the configured zones. */
   clocks: ReactNode;
   onFind: () => void;
+  /** A way to the viewer's booking links on My settings, under Find a time: while they're on and someone is signed in. */
+  bookingLinks?: boolean;
   footer: ReactNode;
 }) {
   return (
@@ -62,6 +65,15 @@ export function Sidebar({
         <CalendarSearch className="size-[18px]" aria-hidden />
         Find a time
       </button>
+      {bookingLinks && (
+        <a
+          href="/settings#booking"
+          className="mx-1 -mt-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-grid-strong text-sm font-medium text-fg-2 transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <CalendarClock className="size-[18px]" aria-hidden />
+          Booking links
+        </a>
+      )}
 
       {clocks}
 

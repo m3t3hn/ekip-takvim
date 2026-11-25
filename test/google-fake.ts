@@ -1,232 +1,414 @@
-// A fake Google for the sync tests, as the server sees it through fetch: the
-// token endpoint (refresh tokens and sign-in codes) and the Calendar API. Every
-// access token it hands out holds TOKEN_MARK, so a scan of log lines, rows and
-// answers finds any of them. Nothing reaches the network: any other address
-// throws.
+// A fake Google for the booking tests, behind a stubbed fetch: the token
+// endpoint and the Calendar API calls the app makes. It keeps each account's
+// calendars and events, so an event the app makes shows up in later reads
+// and in free/busy, and one it deletes is gone. Every call is recorded.
+// Nothing reaches the network: a request to any other address throws, and is
+// kept in `problems`, which a test expects to stay empty.
+//
+// As Google does: an insert makes the event under the id its body gives (one
+// Google takes: a-v and 0-9, 5 to 1024 of them), "primary" in a path is the
+// account's primary calendar, and getting one event answers 404 for an id the
+// calendar never had and status "cancelled" for one that was deleted.
+import { randomBytes } from "node:crypto";
 import { vi } from "vitest";
 
-export const TOKEN_URL = "https://oauth2.googleapis.com/token";
-export const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
-export const API = "https://www.googleapis.com/calendar/v3";
-export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
-/** In every access token handed out, and in nothing else. */
-export const TOKEN_MARK = "AccessMark";
+export type Kind = "token" | "revoke" | "calendarList" | "events" | "freeBusy" | "insert" | "delete" | "get";
 
-export type ApiKind = "list" | "events" | "freebusy";
-export type RefreshCall = { kind: "refresh"; seq: number; at: number; refreshToken: string };
-export type CodeCall = { kind: "code"; seq: number; at: number; code: string };
-export type ApiCall = { kind: ApiKind; seq: number; at: number; token: string; calendarId: string | null };
-export type Call = RefreshCall | CodeCall | ApiCall | { kind: "revoke"; seq: number; at: number; token: string };
-
-/** Someone's Google account: the calendars their tokens open, the first one primary. */
-export type Account = { email: string; calendars: { id: string; access?: "events" | "freebusy" }[] };
-
-/** A sign-in, by its authorization code: who signed in and what the token endpoint answers. */
-export type SignIn = {
-  sub: string;
-  email: string;
-  name: string;
-  /** Sent with the answer, or left out (null): Google then keeps the one it gave before. */
-  refreshToken: string | null;
-  /** expires_in; null leaves it out. */
-  expiresIn: unknown;
+export type Calendar = {
+  id: string;
+  summary: string;
+  accessRole: "owner" | "writer" | "reader" | "freeBusyReader";
+  primary?: boolean;
+  timeZone?: string;
 };
 
-/** What the token endpoint does with one request; `issue` hands out a new access token for whoever asked. */
-export type TokenPlan = (issue: () => string) => Response | Promise<Response>;
-
-export const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-
-export const plans = {
-  /** A new access token; expires_in left out when null. */
-  token:
-    (expiresIn: unknown = 3600): TokenPlan =>
-    (issue) =>
-      json({ access_token: issue(), ...(expiresIn === null ? {} : { expires_in: expiresIn }), scope: `openid ${CALENDAR_SCOPE}`, token_type: "Bearer" }),
-  /** Google refuses the refresh token: revoked, expired, account gone. */
-  invalidGrant: (): TokenPlan => () => json({ error: "invalid_grant", error_description: "Token has been expired or revoked." }, 400),
-  /** An outage: an HTML page. */
-  serverError: (): TokenPlan => () => new Response("<html><body>503 Service Unavailable</body></html>", { status: 503 }),
-  /** A 401 that isn't invalid_grant. */
-  unauthorized: (): TokenPlan => () => json({ error: "invalid_client", error_description: "Unauthorized" }, 401),
-  /** No connection. */
-  noConnection: (): TokenPlan => () => Promise.reject(new TypeError("fetch failed")),
-  /** The request's deadline passed. */
-  timeout: (): TokenPlan => () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
+export type Account = {
+  refreshToken: string;
+  accessToken: string;
+  /** The id of the account's primary calendar: its address. */
+  primary: string;
+  calendars: Calendar[];
 };
 
-/** A token request that waits until it's released with what it answers. */
-export function held(): { plan: TokenPlan; release: (plan: TokenPlan) => void; asked: () => boolean } {
-  let resolve!: (answer: Response | Promise<Response>) => void;
-  const answer = new Promise<Response>((r) => (resolve = r));
-  let issue: (() => string) | null = null;
-  return {
-    plan: (i) => {
-      issue = i;
-      return answer;
-    },
-    release: (plan) => {
-      if (!issue) throw new Error("test: released before it was asked for");
-      resolve(plan(issue));
-    },
-    asked: () => issue !== null,
-  };
+export type Attendee = { email?: string; displayName?: string; self?: boolean; organizer?: boolean; responseStatus?: string };
+
+export type GoogleEvent = {
+  id: string;
+  status?: string;
+  transparency?: string;
+  summary?: string;
+  description?: string;
+  start: { dateTime: string; timeZone?: string };
+  end: { dateTime: string; timeZone?: string };
+  attendees?: Attendee[];
+  organizer?: { email: string; self?: boolean };
+  conferenceData?: unknown;
+  hangoutLink?: string;
+};
+
+export type Call = {
+  kind: Kind;
+  method: string;
+  url: URL;
+  /** The body as sent. */
+  body: string;
+  /** A Calendar API call's JSON body. */
+  json: Record<string, unknown> | null;
+  /** A token or revoke call's form fields. */
+  form: URLSearchParams | null;
+  authorization: string | null;
+  /** The signal the call can be given up with, if any. */
+  signal: AbortSignal | null;
+  /** Whose token it carried. */
+  account: Account | null;
+  /** Date.now() when it was made. */
+  at: number;
+};
+
+/**
+ * What a call gets instead of the fake's own answer: a Response; "timeout",
+ * no answer until the caller gives up on it; "network", fetch throws; or
+ * undefined for the fake's own answer.
+ */
+export type Outcome = Response | "timeout" | "network" | undefined;
+
+const TOKEN_ORIGIN = "https://oauth2.googleapis.com";
+const API_ORIGIN = "https://www.googleapis.com";
+const API_PATH = "/calendar/v3";
+
+export const jsonResponse = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=UTF-8" } });
+
+/** A Calendar API error, as Google writes it. */
+export function apiError(status: number, reason: string, extra: { status?: string; details?: { reason: string }[] } = {}): Response {
+  return jsonResponse(status, {
+    error: { code: status, message: `Test error (${reason})`, errors: [{ domain: "global", reason, message: "Test error" }], ...extra },
+  });
 }
 
-/** An answer that waits until it's released. */
-export function deferred<T>(): { promise: Promise<T>; resolve: (value: T | Promise<T>) => void } {
-  let resolve!: (value: T | Promise<T>) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
-}
-
-export type FakeGoogle = {
-  /** Every request, in order; seq counts them. */
-  calls: Call[];
-  /** Each access token handed out: whose, and the seq of the request that asked for it. */
-  issued: Map<string, { email: string; askedSeq: number }>;
-  /** Accounts by refresh token: what the token endpoint gives a token for. */
-  accounts: Map<string, Account>;
-  /** Sign-ins by authorization code. */
-  signIns: Map<string, SignIn>;
-  /** What the next token requests for a refresh token do, in order; after them, a token lasting an hour. */
-  next: (refreshToken: string, ...plans: TokenPlan[]) => void;
-  /** Asked first about every API request: an answer, or undefined for the usual one. */
-  onApi: ((call: ApiCall) => Response | Promise<Response> | undefined) | null;
-  /** Token requests with a refresh token, of one or of all. */
-  refreshes: (refreshToken?: string) => RefreshCall[];
-  /** Calendar API requests made after request `since`. */
-  api: (since?: number) => ApiCall[];
-  /** The access token handed out for a token request (null: none). */
-  tokenFor: (call: { seq: number }) => string | null;
-  /** The seq of the last request. */
-  seq: () => number;
+/** The failures every Google call is tried with, each a fresh Response. */
+export const failures = {
+  /** Google's servers failed. */
+  serverError: () => apiError(500, "backendError"),
+  /** The access token isn't (or is no longer) good. */
+  unauthorized: () => apiError(401, "authError", { status: "UNAUTHENTICATED" }),
+  /** The token doesn't allow it: the person didn't grant the scope. */
+  forbidden: () => apiError(403, "insufficientPermissions", { status: "PERMISSION_DENIED", details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] }),
+  /** Too many requests: Calendar says so with a 403 too. */
+  rateLimited: () => apiError(403, "rateLimitExceeded"),
+  /** The token endpoint: the client isn't accepted. */
+  tokenUnauthorized: () => jsonResponse(401, { error: "invalid_client", error_description: "Unauthorized" }),
+  tokenForbidden: () => jsonResponse(403, { error: "access_denied", error_description: "Forbidden" }),
+  tokenServerError: () => jsonResponse(500, { error: "internal_failure" }),
+  /** The refresh token was revoked or expired. */
+  invalidGrant: () => jsonResponse(400, { error: "invalid_grant", error_description: "Token has been expired or revoked." }),
 };
 
-/** Install the fake as the global fetch. */
-export function fakeGoogle(): FakeGoogle {
+/** A promise and the function that settles it. */
+export function gate() {
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open };
+}
+
+/** Wait, on real timers, until `ready()` holds. */
+export async function waitFor(ready: () => boolean, what: string, maxMs = 2000): Promise<void> {
+  const until = performance.now() + maxMs;
+  while (!ready()) {
+    if (performance.now() > until) throw new Error(`test: gave up waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
+
+/**
+ * Make every AbortSignal.timeout(ms) the app asks for give up after `ms`
+ * milliseconds instead, so a call Google never answers times out quickly.
+ * Returns the spy; mockRestore() undoes it.
+ */
+export function shortTimeouts(ms = 40) {
+  const real = AbortSignal.timeout.bind(AbortSignal);
+  return vi.spyOn(AbortSignal, "timeout").mockImplementation(() => real(ms));
+}
+
+const overlaps = (start: number, end: number, from: number, to: number) => start < to && end > from;
+const ms = (t: { dateTime: string }) => Date.parse(t.dateTime);
+
+export function fakeGoogle() {
   const calls: Call[] = [];
-  const issued = new Map<string, { email: string; askedSeq: number }>();
-  const accounts = new Map<string, Account>();
-  const signIns = new Map<string, SignIn>();
-  const queued = new Map<string, TokenPlan[]>();
-  let seq = 0;
-  let handedOut = 0;
+  const problems: string[] = [];
+  const accounts: Account[] = [];
+  /** Each calendar's events, by calendar id. */
+  const events = new Map<string, GoogleEvent[]>();
+  /** Busy times Google knows about apart from events, by calendar id. */
+  const busy = new Map<string, { start: number; end: number }[]>();
+  /** Per kind of call, what to answer instead of the usual. */
+  const answer: Partial<Record<Kind, (call: Call) => Outcome | Promise<Outcome>>> = {};
+  const options = { pageSize: Infinity };
+  /** The id of every event made, deleted ones too. */
+  const madeIds: string[] = [];
+  /** Events deleted, by the app or in Google Calendar, as "<calendar id> <event id>". */
+  const deleted = new Set<string>();
+  let made = 0;
+  let inFlight = 0;
 
-  const issuer = (email: string, askedSeq: number) => () => {
-    const token = `ya29.${TOKEN_MARK}${++handedOut}x`;
-    issued.set(token, { email, askedSeq });
-    return token;
-  };
+  /** An account whose refresh token the app holds. */
+  function account(a: { refreshToken: string; primary: string; timeZone?: string; calendars?: Calendar[] }): Account {
+    const added: Account = {
+      refreshToken: a.refreshToken,
+      accessToken: `ya29.a0Secret${accounts.length + 1}${randomBytes(8).toString("hex")}`,
+      primary: a.primary,
+      calendars: a.calendars ?? [{ id: a.primary, summary: a.primary, accessRole: "owner", primary: true, timeZone: a.timeZone ?? "Europe/Istanbul" }],
+    };
+    accounts.push(added);
+    if (!events.has(a.primary)) events.set(a.primary, []);
+    return added;
+  }
 
-  const fake: FakeGoogle = {
-    calls,
-    issued,
-    accounts,
-    signIns,
-    next: (refreshToken, ...more) => queued.set(refreshToken, [...(queued.get(refreshToken) ?? []), ...more]),
-    onApi: null,
-    refreshes: (refreshToken) =>
-      calls.filter((c): c is RefreshCall => c.kind === "refresh" && (refreshToken === undefined || c.refreshToken === refreshToken)),
-    api: (since = 0) => calls.filter((c): c is ApiCall => (c.kind === "list" || c.kind === "events" || c.kind === "freebusy") && c.seq > since),
-    tokenFor: (call) => [...issued].find(([, v]) => v.askedSeq === call.seq)?.[0] ?? null,
-    seq: () => seq,
-  };
+  function reset() {
+    calls.length = 0;
+    problems.length = 0;
+    accounts.length = 0;
+    events.clear();
+    busy.clear();
+    madeIds.length = 0;
+    deleted.clear();
+    for (const k of Object.keys(answer) as Kind[]) delete answer[k];
+    options.pageSize = Infinity;
+  }
 
-  /** The usual answer: the token owner's calendars, one busy hour on each, 401 for a token it never handed out. */
-  function usual(call: ApiCall): Response {
-    const owner = issued.get(call.token);
-    const account = owner && [...accounts.values()].find((a) => a.email === owner.email);
-    if (!account) return json({ error: { code: 401, status: "UNAUTHENTICATED" } }, 401);
-    if (call.kind === "list") {
-      return json({
-        items: account.calendars.map((c, i) => ({
-          id: c.id,
-          summary: c.id,
-          primary: i === 0,
-          accessRole: c.access === "freebusy" ? "freeBusyReader" : "owner",
-          timeZone: "UTC",
-        })),
-      });
+  function kindOf(method: string, url: URL): { kind: Kind; calendarId?: string; eventId?: string } | null {
+    if (url.origin === TOKEN_ORIGIN && method === "POST") {
+      if (url.pathname === "/token") return { kind: "token" };
+      if (url.pathname === "/revoke") return { kind: "revoke" };
+      return null;
     }
-    if (!account.calendars.some((c) => c.id === call.calendarId)) return json({ error: { code: 404, status: "NOT_FOUND" } }, 404);
-    const start = Math.floor(Date.now() / 3_600_000) * 3_600_000 + 48 * 3_600_000;
-    const end = start + 3_600_000;
-    if (call.kind === "freebusy") {
-      return json({ calendars: { [call.calendarId!]: { busy: [{ start: new Date(start).toISOString(), end: new Date(end).toISOString() }] } } });
+    if (url.origin !== API_ORIGIN || !url.pathname.startsWith(`${API_PATH}/`)) return null;
+    const path = url.pathname.slice(API_PATH.length);
+    if (path === "/users/me/calendarList" && method === "GET") return { kind: "calendarList" };
+    if (path === "/freeBusy" && method === "POST") return { kind: "freeBusy" };
+    const list = /^\/calendars\/([^/]+)\/events$/.exec(path);
+    if (list && method === "GET") return { kind: "events", calendarId: decodeURIComponent(list[1]) };
+    if (list && method === "POST") return { kind: "insert", calendarId: decodeURIComponent(list[1]) };
+    const one = /^\/calendars\/([^/]+)\/events\/([^/]+)$/.exec(path);
+    if (one && method === "DELETE") return { kind: "delete", calendarId: decodeURIComponent(one[1]), eventId: decodeURIComponent(one[2]) };
+    if (one && method === "GET") return { kind: "get", calendarId: decodeURIComponent(one[1]), eventId: decodeURIComponent(one[2]) };
+    return null;
+  }
+
+  /** A calendar's events within a range, as one page of a read. Taken when the request comes in. */
+  function readEvents(call: Call, calendarId: string): Response {
+    const from = Date.parse(call.url.searchParams.get("timeMin") ?? "");
+    const to = Date.parse(call.url.searchParams.get("timeMax") ?? "");
+    if (!Number.isFinite(from) || !Number.isFinite(to)) problems.push(`events: no timeMin or timeMax for ${calendarId}`);
+    const inRange = (events.get(calendarId) ?? []).filter((e) => overlaps(ms(e.start), ms(e.end), from, to));
+    const offset = Number(call.url.searchParams.get("pageToken") ?? 0);
+    const page = inRange.slice(offset, offset + options.pageSize);
+    const next = offset + options.pageSize < inRange.length ? String(offset + options.pageSize) : undefined;
+    return jsonResponse(200, { items: structuredClone(page), ...(next ? { nextPageToken: next } : {}) });
+  }
+
+  /** Take an event out of its calendar, as deleting it in Google does. False when the calendar doesn't have it. */
+  function remove(calendarId: string, eventId: string): boolean {
+    const list = events.get(calendarId) ?? [];
+    const at = list.findIndex((e) => e.id === eventId);
+    if (at === -1) return false;
+    list.splice(at, 1);
+    deleted.add(`${calendarId} ${eventId}`);
+    return true;
+  }
+
+  /** An event, with only the top-level fields a `fields` parameter names (all of them without one). */
+  function partial(event: Partial<GoogleEvent>, fields: string | null): Record<string, unknown> {
+    const whole = structuredClone(event) as Record<string, unknown>;
+    if (!fields) return whole;
+    const names = fields.split(",").map((f) => f.trim().replace(/\(.*$/, ""));
+    return Object.fromEntries(Object.entries(whole).filter(([k]) => names.includes(k)));
+  }
+
+  /** Whether an event makes its calendar's owner busy, as free/busy says. */
+  const blocks = (e: GoogleEvent) =>
+    e.status !== "cancelled" && e.transparency !== "transparent" && e.attendees?.find((a) => a.self)?.responseStatus !== "declined";
+
+  function usual(call: Call, where: { calendarId?: string; eventId?: string }): Response {
+    const { kind, account: who } = call;
+    if (kind === "token") {
+      const grant = call.form?.get("grant_type");
+      if (grant === "refresh_token" && who) {
+        return jsonResponse(200, { access_token: who.accessToken, expires_in: 3599, token_type: "Bearer", scope: "openid" });
+      }
+      problems.push(`token: no account for this ${grant} request`);
+      return jsonResponse(500, { error: "test_unknown_grant" });
     }
-    return json({
-      items: [{ id: `ev-${call.calendarId}`, summary: "Planning", status: "confirmed", start: { dateTime: new Date(start).toISOString() }, end: { dateTime: new Date(end).toISOString() } }],
+    if (kind === "revoke") return jsonResponse(200, {});
+    if (!who) {
+      problems.push(`${kind}: a request without a known access token`);
+      return apiError(500, "testUnknownToken");
+    }
+    if (kind === "calendarList") return jsonResponse(200, { items: who.calendars });
+    if (kind === "freeBusy") {
+      const body = call.json as { timeMin?: string; timeMax?: string; items?: { id: string }[] } | null;
+      const from = Date.parse(body?.timeMin ?? "");
+      const to = Date.parse(body?.timeMax ?? "");
+      const calendars: Record<string, { busy: { start: string; end: string }[] }> = {};
+      for (const { id } of body?.items ?? []) {
+        const spans = [
+          ...(busy.get(id) ?? []),
+          ...(events.get(id) ?? []).filter(blocks).map((e) => ({ start: ms(e.start), end: ms(e.end) })),
+        ]
+          .filter((b) => overlaps(b.start, b.end, from, to))
+          .sort((a, b) => a.start - b.start)
+          .map((b) => ({ start: new Date(Math.max(b.start, from)).toISOString(), end: new Date(Math.min(b.end, to)).toISOString() }));
+        calendars[id] = { busy: spans };
+      }
+      return jsonResponse(200, { kind: "calendar#freeBusy", timeMin: body?.timeMin, timeMax: body?.timeMax, calendars });
+    }
+    if (kind === "insert") {
+      if (where.calendarId !== "primary") problems.push(`insert: on calendar ${where.calendarId}, not primary`);
+      const body = (call.json ?? {}) as Partial<GoogleEvent> & { attendees?: Attendee[] };
+      if (body.id !== undefined && !(typeof body.id === "string" && /^[a-v0-9]{5,1024}$/.test(body.id))) {
+        problems.push(`insert: an event id Google doesn't take: ${String(body.id)}`);
+        return apiError(400, "invalid");
+      }
+      if (body.id && (events.get(who.primary) ?? []).some((e) => e.id === body.id)) return apiError(409, "duplicate");
+      made++;
+      const id = body.id ?? `ev${made}k${randomBytes(6).toString("hex")}`;
+      madeIds.push(id);
+      const meet = (body.conferenceData as { createRequest?: unknown } | undefined)?.createRequest;
+      const event: GoogleEvent = {
+        id,
+        status: "confirmed",
+        summary: body.summary,
+        description: body.description,
+        start: body.start!,
+        end: body.end!,
+        attendees: [...(body.attendees ?? []), { email: who.primary, self: true, organizer: true, responseStatus: "accepted" }],
+        organizer: { email: who.primary, self: true },
+        ...(meet ? { conferenceData: { createRequest: meet }, hangoutLink: `https://meet.google.com/tst-${made}` } : {}),
+      };
+      if (!events.has(who.primary)) events.set(who.primary, []);
+      events.get(who.primary)!.push(event);
+      return jsonResponse(200, { kind: "calendar#event", etag: `"${made}"`, htmlLink: `https://www.google.com/calendar/event?eid=${id}`, ...event });
+    }
+    if (kind === "delete" || kind === "get") {
+      const calendarId = where.calendarId === "primary" ? who.primary : (where.calendarId ?? "");
+      const event = (events.get(calendarId) ?? []).find((e) => e.id === where.eventId);
+      const wasDeleted = deleted.has(`${calendarId} ${where.eventId}`);
+      if (kind === "delete") {
+        if (event) {
+          remove(calendarId, event.id);
+          return new Response(null, { status: 204 });
+        }
+        return wasDeleted ? apiError(410, "deleted") : apiError(404, "notFound");
+      }
+      const fields = call.url.searchParams.get("fields");
+      if (event) return jsonResponse(200, partial(event, fields));
+      // Google keeps a deleted event, as cancelled, for a get by its id.
+      if (wasDeleted) return jsonResponse(200, partial({ id: where.eventId, status: "cancelled" }, fields));
+      return apiError(404, "notFound");
+    }
+    // Only events reads are left, and they're answered when they come in.
+    problems.push(`${kind}: no answer`);
+    return apiError(500, "testNoAnswer");
+  }
+
+  function hang(call: Call): Promise<Response> {
+    const { signal } = call;
+    if (!signal) {
+      problems.push(`${call.kind}: a call that can't time out`);
+      return Promise.reject(new TypeError("test: Google never answered"));
+    }
+    return new Promise((_resolve, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
   }
 
-  vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const at = Date.now();
-    if (url === TOKEN_URL) {
-      const body = new URLSearchParams(String(init?.body ?? ""));
-      const n = ++seq;
-      if (body.get("grant_type") === "refresh_token") {
-        const refreshToken = body.get("refresh_token") ?? "";
-        calls.push({ kind: "refresh", seq: n, at, refreshToken });
-        const account = accounts.get(refreshToken);
-        if (body.get("client_id") !== process.env.GOOGLE_CLIENT_ID || body.get("client_secret") !== process.env.GOOGLE_CLIENT_SECRET) {
-          return json({ error: "invalid_client" }, 401);
-        }
-        const plan = queued.get(refreshToken)?.shift() ?? (account ? plans.token() : plans.invalidGrant());
-        return plan(issuer(account?.email ?? "nobody@example.com", n));
+  async function bodyOf(input: string | URL | Request, init?: RequestInit): Promise<string> {
+    const body = init?.body ?? null;
+    if (body === null) return input instanceof Request ? await input.clone().text() : "";
+    if (typeof body === "string") return body;
+    if (body instanceof URLSearchParams) return body.toString();
+    return await new Response(body).text();
+  }
+
+  async function fetchStub(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+    const where = kindOf(method, url);
+    if (!where) {
+      problems.push(`unexpected request: ${method} ${url.origin}${url.pathname}`);
+      throw new TypeError(`test: no network (${url.host})`);
+    }
+    const body = await bodyOf(input, init);
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const signal = init?.signal ?? (input instanceof Request ? input.signal : null) ?? null;
+    let json: Record<string, unknown> | null = null;
+    let form: URLSearchParams | null = null;
+    if (where.kind === "token" || where.kind === "revoke") {
+      form = new URLSearchParams(body);
+    } else if (body) {
+      try {
+        json = JSON.parse(body) as Record<string, unknown>;
+      } catch {
+        problems.push(`${where.kind}: a body that isn't JSON`);
       }
-      if (body.get("grant_type") === "authorization_code") {
-        const code = body.get("code") ?? "";
-        calls.push({ kind: "code", seq: n, at, code });
-        if (body.get("client_id") !== process.env.GOOGLE_CLIENT_ID || body.get("client_secret") !== process.env.GOOGLE_CLIENT_SECRET) {
-          return json({ error: "invalid_client" }, 401);
-        }
-        const who = signIns.get(code);
-        if (!who) return json({ error: "invalid_grant" }, 400);
-        const claims = { sub: who.sub, email: who.email, email_verified: true, name: who.name };
-        const idToken = `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;
-        if (who.refreshToken) {
-          const before = [...accounts.values()].find((a) => a.email === who.email);
-          accounts.set(who.refreshToken, before ?? { email: who.email, calendars: [{ id: who.email }] });
-        }
-        return json({
-          access_token: issuer(who.email, n)(),
-          ...(who.expiresIn === null ? {} : { expires_in: who.expiresIn }),
-          ...(who.refreshToken ? { refresh_token: who.refreshToken } : {}),
-          id_token: idToken,
-          scope: `openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile ${CALENDAR_SCOPE}`,
-          token_type: "Bearer",
-        });
+    }
+    const authorization = headers.get("authorization");
+    const who =
+      where.kind === "token"
+        ? (accounts.find((a) => a.refreshToken === form?.get("refresh_token")) ?? null)
+        : (accounts.find((a) => authorization === `Bearer ${a.accessToken}`) ?? null);
+    const call: Call = { kind: where.kind, method, url, body, json, form, authorization, signal, account: who, at: Date.now() };
+    calls.push(call);
+    // A read returns what the calendar held when it came in.
+    const early = where.kind === "events" ? (who ? readEvents(call, where.calendarId!) : null) : null;
+    inFlight++;
+    try {
+      const custom = answer[where.kind] ? await answer[where.kind]!(call) : undefined;
+      if (custom === "network") throw new TypeError("test: Google can't be reached");
+      if (custom === "timeout") return await hang(call);
+      if (custom) return custom;
+      if (where.kind === "events" && !who) {
+        problems.push("events: a request without a known access token");
+        return apiError(500, "testUnknownToken");
       }
-      return json({ error: "unsupported_grant_type" }, 400);
+      return early ?? usual(call, where);
+    } finally {
+      inFlight--;
     }
-    if (url.startsWith(REVOKE_URL)) {
-      calls.push({ kind: "revoke", seq: ++seq, at, token: new URLSearchParams(String(init?.body ?? "")).get("token") ?? "" });
-      return new Response("", { status: 200 });
-    }
-    if (url.startsWith(`${API}/`)) {
-      const token = (new Headers(init?.headers).get("authorization") ?? "").replace(/^Bearer /, "");
-      const path = url.slice(API.length);
-      let kind: ApiKind;
-      let calendarId: string | null = null;
-      if (path.startsWith("/users/me/calendarList")) kind = "list";
-      else if (path.startsWith("/freeBusy")) {
-        kind = "freebusy";
-        calendarId = (JSON.parse(String(init?.body)) as { items: { id: string }[] }).items[0].id;
-      } else if (/^\/calendars\/[^/]+\/events/.test(path)) {
-        kind = "events";
-        calendarId = decodeURIComponent(path.split("/")[2]);
-      } else throw new TypeError(`test: no such Calendar API request (${path.split("?")[0]})`);
-      const call: ApiCall = { kind, seq: ++seq, at, token, calendarId };
-      calls.push(call);
-      return (await fake.onApi?.(call)) ?? usual(call);
-    }
-    throw new TypeError(`test: no network (${new URL(url).host})`);
-  });
-  return fake;
+  }
+
+  return {
+    calls,
+    problems,
+    accounts,
+    events,
+    busy,
+    answer,
+    options,
+    made: madeIds,
+    account,
+    reset,
+    remove,
+    /** What Google itself answers a call, with what it does (an insert makes its event): for an answer that does that and then fails. */
+    usual: (call: Call) => usual(call, kindOf(call.method, call.url) ?? {}),
+    /** Stub fetch with this fake. */
+    install: () => vi.stubGlobal("fetch", fetchStub),
+    /** The calls of one kind, in order. */
+    of: (kind: Kind) => calls.filter((c) => c.kind === kind),
+    /** Wait until no call is waiting for its answer, and none came for a few turns. */
+    async idle(maxMs = 5000) {
+      const until = performance.now() + maxMs;
+      let quiet = 0;
+      while (quiet < 5) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        quiet = inFlight === 0 ? quiet + 1 : 0;
+        if (performance.now() > until) throw new Error("test: Google calls still waiting");
+      }
+    },
+  };
 }
 
-/** Google's answer to a request with an access token it turned down. */
-export const unauthorized = () => json({ error: { code: 401, message: "Request had invalid authentication credentials.", status: "UNAUTHENTICATED" } }, 401);
+export type FakeGoogle = ReturnType<typeof fakeGoogle>;

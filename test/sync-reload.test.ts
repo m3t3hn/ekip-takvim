@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeGoogle, type Account, type FakeGoogle } from "./google-fake";
+import { fakeGoogle, type Account, type FakeGoogle } from "./google-token-fake";
 import { calendarServer, calendarText, captureConsole, utcDay, vevent, type CalendarServer } from "./link-helpers";
 
 // Sync every minute, fix: a hot reload (criterion 3). `next dev` evaluates

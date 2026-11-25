@@ -1,8 +1,11 @@
+import { bookingCheck, bookingSetting } from "./booking-setting";
 import { LinkError, fetchCalendar } from "./calendar-link";
 import { ConfigError, buildConfig, configSource, configVersion, loadConfig, type AppConfig } from "./config";
 import {
+  bookingsNotInRead,
   bumpSessionVersion,
   busyBetween,
+  cancelBookingGone,
   countsAsBusy,
   getUser,
   linkOf,
@@ -19,12 +22,22 @@ import {
   setSyncError,
   setTokenError,
   syncCalendarList,
+  type CalendarRead,
   type CalendarRow,
   type UserRow,
 } from "./db";
 import { seedDemo } from "./demo";
 import { exposureProblem, exposureSetting } from "./exposure";
-import { GoogleError, accessToken, dropAccessToken, eventBusy, freeBusy, listCalendars as googleCalendars, type Busy } from "./google";
+import {
+  GoogleError,
+  accessToken,
+  dropAccessToken,
+  eventBusy,
+  eventStatus,
+  freeBusy,
+  listCalendars as googleCalendars,
+  type Busy,
+} from "./google";
 import { icsBusy } from "./ics";
 import { linksAllowed, linksCheck, linksSetting, privateLinksAllowed } from "./link-setting";
 import { decrypt, googleConfigured, isDemo } from "./secrets";
@@ -95,7 +108,8 @@ const state: State = (g[KEY] ??= {
 // After `next dev` reloads this file, the state may be one an older version made, without this.
 state.refused ??= new Map();
 
-function log(level: "info" | "warn" | "error", msg: string, extra?: object) {
+/** One JSON log line, of the sync's scope unless `extra` names another. */
+export function log(level: "info" | "warn" | "error", msg: string, extra?: object) {
   const line = JSON.stringify({ level, msg, scope: "sync", ...extra });
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
@@ -146,9 +160,9 @@ const signedInAgain = (user: UserRow) => getUser(user.id)?.refresh_token !== use
  * Google refused this person's refresh token (revoked, expired, account
  * suspended when someone leaves): they have to sign in again, so end their
  * sessions too, unless they're marked already. Rounds then leave them alone a
- * while (see refusedLately).
+ * while (see refusedLately). The sync and booking links both come here.
  */
-function refreshTokenRefused(user: UserRow, message: string): void {
+export function refreshTokenRefused(user: UserRow, message: string): void {
   if (signedInAgain(user)) return;
   state.refused.set(user.id, { sealed: user.refresh_token, at: Date.now() });
   // Marked already: their sessions ended then.
@@ -183,9 +197,10 @@ function refusedLately(user: UserRow, config: AppConfig): boolean {
  * stale: it's dropped and a new one asked for, which their later requests use.
  * Only Google refusing their refresh token means they have to sign in again.
  * Returns the new token, or null: Google refused or couldn't be asked, or they
- * signed in again since this request's sync started. Never throws.
+ * signed in again since this request's sync started. Never throws. The sync
+ * and booking links both come here.
  */
-async function accessLost(user: UserRow, message: string): Promise<string | null> {
+export async function accessLost(user: UserRow, message: string): Promise<string | null> {
   if (!user.refresh_token || signedInAgain(user)) return null;
   try {
     const refreshToken = decrypt(user.refresh_token);
@@ -250,11 +265,16 @@ async function readGoogle(user: UserRow, config: AppConfig, token: string): Prom
   for (const cal of listCalendars(user.id).filter((c) => c.included && c.kind === "google")) {
     markCalendarAttempt(user.id, cal.calendar_id);
     try {
-      const busy =
-        cal.access === "freebusy"
-          ? await freeBusy(token, cal.calendar_id, from, to)
-          : await eventBusy(token, cal.calendar_id, from, to, user.timezone);
-      setBusy(user.id, cal.calendar_id, busy);
+      if (cal.access === "freebusy") {
+        setBusy(user.id, cal.calendar_id, await freeBusy(token, cal.calendar_id, from, to));
+        continue;
+      }
+      // An event made after this moment may be missing from the read without having been deleted.
+      const started = Date.now();
+      const read = await eventBusy(token, cal.calendar_id, from, to, user.timezone);
+      setBusy(user.id, cal.calendar_id, read.busy);
+      // A booking whose event the host deleted in Google Calendar is cancelled, and its time is free again.
+      await cancelBookingsGone(user, token, cal.calendar_id, { started, from: from.getTime(), to: to.getTime(), eventIds: read.eventIds });
     } catch (err) {
       const message = err instanceof GoogleError ? err.message : "Couldn't read the calendar";
       setCalendarError(user.id, cal.calendar_id, message);
@@ -263,6 +283,31 @@ async function readGoogle(user: UserRow, config: AppConfig, token: string): Prom
     }
   }
   return null;
+}
+
+/**
+ * After a full read of someone's Google calendar: cancel their bookings on it
+ * whose event was deleted in Google Calendar. The read only names the
+ * candidates (bookingsNotInRead): an event moved out of the range read, or a
+ * list that lagged behind, is missing from it too. So Google is asked for
+ * each one's status, and only an event it says is gone (404, 410 or
+ * cancelled) cancels its booking. Any other answer, or none, keeps the
+ * booking until the next read asks again, and doesn't fail the calendar.
+ */
+async function cancelBookingsGone(user: UserRow, token: string, calendarId: string, read: CalendarRead): Promise<void> {
+  let cancelled = 0;
+  for (const booking of bookingsNotInRead(user.id, calendarId, read)) {
+    let status: "gone" | "there";
+    try {
+      status = await eventStatus(token, calendarId, booking.event_id);
+    } catch (err) {
+      const message = err instanceof GoogleError ? err.message : "Couldn't reach Google";
+      log("warn", "booking event not checked", { user: user.id, event: booking.event_id, error: message });
+      continue;
+    }
+    if (status === "gone" && cancelBookingGone(booking.id)) cancelled++;
+  }
+  if (cancelled) log("info", "bookings cancelled: their events were deleted in Google", { user: user.id, bookings: cancelled });
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +544,9 @@ export function ensureStarted(): void {
   if (linksSetting() === "invalid") {
     log("error", "CALENDAR_LINKS must be on, private or off: calendar links are off until it is");
   }
+  if (bookingSetting() === "invalid") {
+    log("error", "BOOKING_LINKS must be on or off: booking links are off until it is");
+  }
   log("info", "starting", {
     version: APP_VERSION,
     config: configSource(),
@@ -509,14 +557,17 @@ export function ensureStarted(): void {
   void syncNow().then(schedule);
 }
 
-/** Which of the app's own access checks are on, and where calendar links may go, for the start-up log. */
+/**
+ * Which of the app's own access checks are on, where calendar links may go,
+ * and whether booking pages are public, for the start-up log.
+ */
 function accessChecks(): string {
   const on = [
     process.env.CF_ACCESS_TEAM_DOMAIN || process.env.CF_ACCESS_AUD ? "Cloudflare Access" : null,
     process.env.BASIC_AUTH_USER || process.env.BASIC_AUTH_PASSWORD ? "basic auth" : null,
     exposureSetting() === "exposed" ? "sign-in for everything (EXPOSURE=exposed)" : null,
   ].filter(Boolean);
-  return `${on.length ? on.join(", ") : "none: keep the app behind a VPN or an access proxy"}; ${linksCheck()}`;
+  return `${on.length ? on.join(", ") : "none: keep the app behind a VPN or an access proxy"}; ${linksCheck()}; ${bookingCheck()}`;
 }
 
 /** Manual refresh from the UI, rate limited so it can't hammer Google. */
@@ -602,7 +653,7 @@ type DataCalendar = Pick<CalendarRow, "last_success" | "error"> & { kind?: Calen
  * only when they granted calendar access, calendar links while this server
  * takes links.
  */
-function counted<T extends DataCalendar>(user: DataUser, included: T[]): { google: T[]; links: T[] } {
+export function counted<T extends DataCalendar>(user: DataUser, included: T[]): { google: T[]; links: T[] } {
   return {
     google: user.calendar_access ? included.filter((c) => c.kind !== "link") : [],
     links: linksAllowed() ? included.filter((c) => c.kind === "link") : [],

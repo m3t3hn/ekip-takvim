@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { App } from "@/components/app";
+import { bookingAllowed } from "@/lib/server/booking-setting";
 import { getSettings } from "@/lib/server/sync";
 import { currentViewer } from "@/lib/server/viewer";
 import { currentDayKey, isTimeZone, serverTime } from "@/lib/time";
@@ -26,6 +27,7 @@ export default async function Page({ searchParams }: PageProps<"/">) {
       serverZone={zone}
       serverNow={serverTime()}
       initialQuery={initialQuery}
+      bookingLinks={bookingAllowed()}
     />
   );
 }

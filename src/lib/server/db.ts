@@ -34,6 +34,50 @@ const LINK_COLUMNS = [
 /** Calendar links list after the person's Google calendars, which syncCalendarList numbers from 0. */
 const LINK_POSITIONS = 1000;
 
+// Booking links (see bookings.ts): the links people make for others to book
+// a time with them, and the bookings made on them. A new database gets these
+// tables from SCHEMA, an older one from migrate(): the same definitions.
+const BOOKING_TABLES = `
+CREATE TABLE IF NOT EXISTS booking_links (
+  id TEXT PRIMARY KEY,                -- the token in the link's address
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  duration_min INTEGER NOT NULL,
+  days TEXT NOT NULL,                 -- the weekdays it offers, e.g. "1,2,3,4,5" (0 = Sunday)
+  start_min INTEGER NOT NULL,         -- the daily window on the host's clock, minutes after midnight
+  end_min INTEGER NOT NULL,
+  buffer_min INTEGER NOT NULL DEFAULT 0,
+  notice_min INTEGER NOT NULL DEFAULT 0,
+  ahead_days INTEGER NOT NULL,
+  max_per_day INTEGER,                -- null: no cap
+  meet INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS booking_links_by_user ON booking_links (user_id);
+CREATE TABLE IF NOT EXISTS bookings (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,   -- the host
+  link_id TEXT REFERENCES booking_links(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,                -- the link's title when booked
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  guest_name TEXT NOT NULL,
+  guest_email TEXT NOT NULL,
+  note TEXT,
+  cancel_hash TEXT NOT NULL UNIQUE,   -- SHA-256 of the cancel token; the token isn't kept
+  created_at INTEGER NOT NULL,
+  cancelled_at INTEGER,
+  event_id TEXT,                      -- the host's Google event, once there is one
+  calendar_id TEXT,
+  event_made_at INTEGER               -- when it was made: a sync read started after that lists it until it's deleted
+);
+CREATE INDEX IF NOT EXISTS bookings_by_user ON bookings (user_id, end_ms);
+-- Also counts a link's bookings in the last hour (see linkFull).
+CREATE INDEX IF NOT EXISTS bookings_by_link ON bookings (link_id, created_at);
+`;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -48,7 +92,8 @@ CREATE TABLE IF NOT EXISTS users (
   token_error TEXT,
   sync_error TEXT,                    -- why their calendar list couldn't be read
   created_at INTEGER NOT NULL,
-  session_version INTEGER NOT NULL DEFAULT 1  -- bumped to end every session (sign out, lost access)
+  session_version INTEGER NOT NULL DEFAULT 1,  -- bumped to end every session (sign out, lost access)
+  booking_access INTEGER NOT NULL DEFAULT 0    -- 1: they allowed booking links to add booked meetings to their Google Calendar
 );
 CREATE TABLE IF NOT EXISTS calendars (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -84,7 +129,7 @@ CREATE TABLE IF NOT EXISTS busy (
   FOREIGN KEY (user_id, calendar_id) REFERENCES calendars(user_id, calendar_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS busy_by_time ON busy (start_ms, end_ms);
-`;
+${BOOKING_TABLES}`;
 
 export type UserRow = {
   id: string;
@@ -100,6 +145,8 @@ export type UserRow = {
   sync_error: string | null;
   created_at: number;
   session_version: number;
+  /** 1 when booking links may add booked meetings to their Google Calendar (calendar.events). */
+  booking_access: number;
 };
 
 export type CalendarRow = {
@@ -181,6 +228,10 @@ export function migrate(conn: DatabaseSync): void {
   if (columns.length && !columns.includes("session_version")) {
     conn.exec("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1");
   }
+  // Before booked meetings went to Google Calendar, nobody had allowed it.
+  if (columns.length && !columns.includes("booking_access")) {
+    conn.exec("ALTER TABLE users ADD COLUMN booking_access INTEGER NOT NULL DEFAULT 0");
+  }
   const calendarColumns = (conn.prepare("PRAGMA table_info(calendars)").all() as { name: string }[]).map((c) => c.name);
   if (calendarColumns.length && !calendarColumns.includes("seen")) {
     conn.exec("ALTER TABLE calendars ADD COLUMN seen INTEGER NOT NULL DEFAULT 1");
@@ -202,6 +253,17 @@ export function migrate(conn: DatabaseSync): void {
     if (busyColumns.length && !busyColumns.includes(col)) conn.exec(`ALTER TABLE busy ADD COLUMN ${col} TEXT`);
   }
   if (busyColumns.length) conn.exec("CREATE INDEX IF NOT EXISTS busy_by_ref ON busy (ref)");
+  // Before booking links there were no booking tables.
+  if (columns.length) conn.exec(BOOKING_TABLES);
+  // bookings_by_link was on link_id alone before a link's bookings were counted by the hour.
+  if (columns.length && conn.prepare("PRAGMA index_info(bookings_by_link)").all().length === 1) {
+    conn.exec("DROP INDEX bookings_by_link; CREATE INDEX bookings_by_link ON bookings (link_id, created_at);");
+  }
+  // Before bookings were Google events, nothing said when an event was made.
+  const bookingColumns = (conn.prepare("PRAGMA table_info(bookings)").all() as { name: string }[]).map((c) => c.name);
+  if (bookingColumns.length && !bookingColumns.includes("event_made_at")) {
+    conn.exec("ALTER TABLE bookings ADD COLUMN event_made_at INTEGER");
+  }
 
   const rows = conn.prepare("SELECT id, color FROM users ORDER BY created_at, id").all() as { id: string; color: unknown }[];
   const used = new Set<string>();
@@ -284,7 +346,9 @@ function uniqueId(name: string, email: string): string {
 
 /**
  * Create or update someone after a Google sign-in. A refresh token is only
- * replaced when Google sent a new one.
+ * replaced when Google sent a new one. Whether they allowed booking links
+ * comes from the same sign-in's scopes; left out, someone already here keeps
+ * theirs, and someone new hasn't.
  */
 export function upsertGoogleUser(input: {
   sub: string;
@@ -293,8 +357,10 @@ export function upsertGoogleUser(input: {
   timezone: string;
   refreshToken: string | null;
   calendarAccess: boolean;
+  bookingAccess?: boolean;
 }): { user: UserRow; created: boolean } {
   const conn = db();
+  const booking = input.bookingAccess === undefined ? null : input.bookingAccess ? 1 : 0;
   const existing = conn
     .prepare("SELECT * FROM users WHERE google_sub = ? OR email = ?")
     .get(input.sub, input.email) as UserRow | undefined;
@@ -302,16 +368,16 @@ export function upsertGoogleUser(input: {
     conn
       .prepare(
         `UPDATE users SET google_sub = ?, email = ?, name = ?, calendar_access = ?, token_error = NULL,
-           refresh_token = COALESCE(?, refresh_token) WHERE id = ?`,
+           refresh_token = COALESCE(?, refresh_token), booking_access = COALESCE(?, booking_access) WHERE id = ?`,
       )
-      .run(input.sub, input.email, input.name, input.calendarAccess ? 1 : 0, input.refreshToken, existing.id);
+      .run(input.sub, input.email, input.name, input.calendarAccess ? 1 : 0, input.refreshToken, booking, existing.id);
     return { user: getUser(existing.id)!, created: false };
   }
   const id = uniqueId(input.name, input.email);
   conn
     .prepare(
-      `INSERT INTO users (id, google_sub, email, name, team, timezone, color, refresh_token, calendar_access, created_at)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, google_sub, email, name, team, timezone, color, refresh_token, calendar_access, booking_access, created_at)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -323,6 +389,7 @@ export function upsertGoogleUser(input: {
       pickColor(takenColors().map((t) => t.color)),
       input.refreshToken,
       input.calendarAccess ? 1 : 0,
+      booking ?? 0,
       Date.now(),
     );
   return { user: getUser(id)!, created: true };
@@ -350,6 +417,11 @@ export function updateUser(id: string, patch: { team?: string | null; timezone?:
 
 export function setTokenError(id: string, error: string | null): void {
   db().prepare("UPDATE users SET token_error = ? WHERE id = ?").run(error, id);
+}
+
+/** Whether booking links may add booked meetings to this person's Google Calendar. */
+export function setBookingAccess(id: string, allowed: boolean): void {
+  db().prepare("UPDATE users SET booking_access = ? WHERE id = ?").run(allowed ? 1 : 0, id);
 }
 
 export function setSyncError(id: string, error: string | null): void {
@@ -601,6 +673,47 @@ export function setBusy(
   });
 }
 
+/** Drop the busy time of a Google event the app just deleted, as the next sync would. */
+export function dropEventBusy(userId: string, calendarId: string, eventId: string): void {
+  db()
+    .prepare("DELETE FROM busy WHERE user_id = ? AND calendar_id = ? AND ref = ?")
+    .run(userId, calendarId, eventRef(userId, calendarId, eventId));
+}
+
+/** A full read of someone's Google calendar: when it started, the range it covered, and every event it returned. */
+export type CalendarRead = { started: number; from: number; to: number; eventIds: Set<string> };
+
+/**
+ * After someone's Google calendar was read in full: their active bookings on
+ * it whose event the read didn't return. Only those the read can tell about:
+ * their event was made before the read started, they start within the range
+ * read, and they haven't ended. `eventIds` are all the events the read
+ * returned, busy or not, so an event shown as free or declined isn't missing.
+ * A missing event was deleted, or moved out of the range read: the sync asks
+ * Google which before it cancels anything (cancelBookingsGone in sync.ts).
+ */
+export function bookingsNotInRead(
+  userId: string,
+  calendarId: string,
+  read: CalendarRead,
+  now = Date.now(),
+): { id: string; event_id: string }[] {
+  return (
+    db()
+      .prepare(
+        `SELECT id, event_id FROM bookings WHERE user_id = ? AND calendar_id = ? AND cancelled_at IS NULL
+           AND event_id IS NOT NULL AND event_made_at < ? AND start_ms >= ? AND start_ms < ? AND end_ms > ?`,
+      )
+      .all(userId, calendarId, read.started, read.from, read.to, now) as { id: string; event_id: string }[]
+  ).filter((b) => !read.eventIds.has(b.event_id));
+}
+
+/** Cancel a booking whose event was deleted in Google Calendar; false when it was cancelled already, or is gone. */
+export function cancelBookingGone(id: string, now = Date.now()): boolean {
+  const cancelled = db().prepare("UPDATE bookings SET cancelled_at = ? WHERE id = ? AND cancelled_at IS NULL").run(now, id);
+  return Number(cancelled.changes) > 0;
+}
+
 /**
  * The id the browser gets for an event. Stable across syncs, and a hash so
  * it doesn't give away the calendar's id (a personal address, for shared ones).
@@ -625,19 +738,18 @@ export function getEventByRef(ref: string): EventRow | null {
   );
 }
 
-/** Busy times of counted calendars overlapping [from, to). */
-export function busyBetween(from: number, to: number): BusyRow[] {
-  return db()
-    .prepare(
-      `SELECT b.* FROM busy b
-       JOIN calendars c ON c.user_id = b.user_id AND c.calendar_id = b.calendar_id
-       WHERE ${countedSql()} AND b.start_ms < ? AND b.end_ms > ?
-       ORDER BY b.start_ms`,
-    )
-    .all(to, from) as BusyRow[];
+/** Busy times of counted calendars overlapping [from, to): everyone's, or one person's. */
+export function busyBetween(from: number, to: number, userId?: string): BusyRow[] {
+  const stmt = db().prepare(
+    `SELECT b.* FROM busy b
+     JOIN calendars c ON c.user_id = b.user_id AND c.calendar_id = b.calendar_id
+     WHERE ${countedSql()} AND b.start_ms < ? AND b.end_ms > ?${userId ? " AND b.user_id = ?" : ""}
+     ORDER BY b.start_ms`,
+  );
+  return (userId ? stmt.all(to, from, userId) : stmt.all(to, from)) as BusyRow[];
 }
 
 /** Wipe everything; the demo starts from a clean database each run. */
 export function resetAll(): void {
-  db().exec("DELETE FROM busy; DELETE FROM calendars; DELETE FROM users;");
+  db().exec("DELETE FROM bookings; DELETE FROM booking_links; DELETE FROM busy; DELETE FROM calendars; DELETE FROM users;");
 }

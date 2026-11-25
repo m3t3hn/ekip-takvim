@@ -33,9 +33,10 @@ Many of us work more than one job, so "is Mert free on Thursday evening?" usuall
 - **Up to date:** Google calendars are read again every minute by default.
 - **Time zones done properly:** you see every time on your own clock, alongside each person's local time and fixed company working hours.
 - **Invites in one click:** a prefilled event in Google Calendar or Outlook, or an `.ics` file.
+- **Booking links, if you turn them on:** people make links where anyone outside the team, such as a client or a candidate, books a meeting in their free time, much like Google Calendar's appointment schedules. The meeting goes into their Google Calendar, and Google invites the visitor.
 - **Privacy built in:** colleagues see the titles of company-calendar events only, and personal calendars just show their label ([who sees what](docs/privacy-and-security.md#who-sees-what)).
 - **Honest about gaps:** someone whose calendar can't be read isn't shown as free.
-- **Easy to run:** read-only access to Google, one container with SQLite, and a config file you can do without.
+- **Easy to run:** read-only access to Google unless you turn on booking links, one container with SQLite, and a config file you can do without.
 
 | Week | Find a time |
 |---|---|

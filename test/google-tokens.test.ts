@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { captureConsole } from "./link-helpers";
-import { TOKEN_MARK, deferred as waiting, fakeGoogle, held as holding, plans, unauthorized, type Account, type ApiCall, type FakeGoogle, type TokenPlan } from "./google-fake";
+import { TOKEN_MARK, deferred as waiting, fakeGoogle, held as holding, plans, unauthorized, type Account, type ApiCall, type FakeGoogle, type TokenPlan } from "./google-token-fake";
 
 // Sync every minute, criteria 2 to 4, and the demo of criterion 6: a Google
 // access token is used again until five minutes before the end of the
 // expires_in Google gave, a sign-in replaces the one kept, and a 401 asks for a
 // new one before anyone is marked as having to sign in again; and, from fix round
 // 1, someone Google refused is asked for at most every 10 minutes and marked
-// once. Google is a fetch stub (google-fake.ts) and the clock is a fake Date;
+// once. Google is a fetch stub (google-token-fake.ts) and the clock is a fake Date;
 // nothing leaves the process. After every test, no log line, row or answer may
 // hold an access token.
 const jar = vi.hoisted(() => ({ session: undefined as string | undefined }));

@@ -269,9 +269,10 @@ export function seedDemo(config: AppConfig): boolean {
   transaction(() => {
     resetAll();
     const conn = db();
+    // Everyone may take bookings, as after Allow access: the demo never asks Google.
     const addUser = conn.prepare(
-      `INSERT INTO users (id, google_sub, email, name, team, timezone, color, refresh_token, calendar_access, token_error, created_at)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, 1, ?, ?)`,
+      `INSERT INTO users (id, google_sub, email, name, team, timezone, color, refresh_token, calendar_access, booking_access, token_error, created_at)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, 1, 1, ?, ?)`,
     );
     const addCal = conn.prepare(
       `INSERT INTO calendars (user_id, calendar_id, summary, label, access, is_primary, included, position, last_success, last_attempt, error, events)

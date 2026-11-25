@@ -12,7 +12,7 @@
 - [Troubleshooting](troubleshooting.md)
 
 **Use it**
-- [User guide](user-guide.md): adding yourself, calendar links, the views, finding a time, invites.
+- [User guide](user-guide.md): adding yourself, calendar links, booking links, the views, finding a time, invites.
 - [Privacy and security](privacy-and-security.md): who sees what, and what's stored.
 
 **Work on it**

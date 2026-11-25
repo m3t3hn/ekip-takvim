@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { accessCheck, validAccessToken } from "@/lib/server/access";
+import { bookingAllowed } from "@/lib/server/booking-setting";
 import { exposureSetting, gate } from "@/lib/server/exposure";
 import { SESSION_COOKIE } from "@/lib/server/secrets";
 import { appUrl, userForSession } from "@/lib/server/viewer";
@@ -11,7 +12,30 @@ import { appUrl, userForSession } from "@/lib/server/viewer";
 // - HTTP basic auth (BASIC_AUTH_USER and BASIC_AUTH_PASSWORD), for when the
 //   app can't sit behind the VPN or Cloudflare Access.
 // - EXPOSURE=exposed: everything but signing in needs a signed-in person.
+// Booking pages are for anyone, so with BOOKING_LINKS=on they skip all three.
 export async function proxy(request: NextRequest) {
+  const booking = BOOKING_PATH.test(request.nextUrl.pathname);
+  if (booking && bookingAllowed()) return forVisitors(NextResponse.next());
+  const answer = await checks(request);
+  return booking ? forVisitors(answer) : answer;
+}
+
+/** A booking page or the booking API: what visitors open. */
+const BOOKING_PATH = /^\/(api\/)?book\//;
+
+/**
+ * Search engines don't list booking pages, whatever they answer. And nothing
+ * a booking page asks for carries its address as the Referer: once a visitor
+ * books, the page's address is the booking's cancel link, a secret. This
+ * Referrer-Policy replaces the one next.config.ts gives every answer.
+ */
+function forVisitors(response: NextResponse): NextResponse {
+  response.headers.set("X-Robots-Tag", "noindex");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+}
+
+async function checks(request: NextRequest): Promise<NextResponse> {
   const access = accessCheck();
   if (access === "incomplete") {
     return new NextResponse("Set both CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD, or neither", { status: 500 });

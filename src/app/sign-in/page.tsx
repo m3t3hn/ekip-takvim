@@ -1,6 +1,7 @@
 import { LogIn } from "lucide-react";
 import { redirect } from "next/navigation";
 import { LogoMark } from "@/components/ui";
+import { bookingAllowed } from "@/lib/server/booking-setting";
 import { listPeople } from "@/lib/server/db";
 import { googleConfigured, isDemo } from "@/lib/server/secrets";
 import { getSettings } from "@/lib/server/sync";
@@ -73,7 +74,9 @@ export default async function SignIn({ searchParams }: PageProps<"/sign-in">) {
         )}
 
         <p className="mt-6 font-body text-xs text-fg-3">
-          The app only reads your calendars. You choose which ones count on your settings page.
+          {bookingAllowed()
+            ? "The app only reads your calendars, unless you allow booking links to add the meetings booked with you. You choose which calendars count on your settings page."
+            : "The app only reads your calendars. You choose which ones count on your settings page."}
         </p>
       </div>
     </main>

@@ -1,14 +1,21 @@
 import { createHash } from "node:crypto";
 import { dayStart } from "@/lib/time";
 
-// Google sign-in and read-only Calendar access. Nothing here can write to a
-// calendar: invites are handed to Google Calendar's own page instead.
+// Google sign-in and Calendar access. Calendars are read with calendar.readonly.
+// The one thing ever written is a booked meeting's event: for someone who
+// allowed booking links (calendar.events, asked for by authUrl with `booking`),
+// insertEvent makes it on their primary calendar with the visitor invited, and
+// deleteEvent deletes it when the booking is cancelled, or when it was made for
+// a booking that's gone. Nothing else is written: invites from the team
+// calendar are handed to Google Calendar's own page instead.
 
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const API = "https://www.googleapis.com/calendar/v3";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+/** Making and deleting events: asked for only when someone allows booking links. */
+export const EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const TIMEOUT_MS = 20_000;
 
 export class GoogleError extends Error {
@@ -19,6 +26,16 @@ export class GoogleError extends Error {
      * or the access token a request used (401). See accessLost in sync.ts.
      */
     readonly signInAgain = false,
+    /** The HTTP status Google answered with, when it answered. */
+    readonly status?: number,
+    /** Google's reason was a rate limit or quota, not a refusal. */
+    readonly rateLimited = false,
+    /**
+     * A 403 because the person didn't grant the permission the request needs
+     * (insufficientPermissions, ACCESS_TOKEN_SCOPE_INSUFFICIENT), rather than
+     * a rate limit, a quota or a rule of their Google Workspace.
+     */
+    readonly missingPermission = false,
   ) {
     super(message);
   }
@@ -28,12 +45,20 @@ export function redirectUri(origin: string): string {
   return `${process.env.APP_URL?.replace(/\/$/, "") || origin}/auth/google/callback`;
 }
 
-export function authUrl(opts: { origin: string; state: string; domain: string | null }): string {
+/**
+ * How the state of a sign-in that asked for booking access ends, so the
+ * callback knows to send the person back to My settings. Google returns the
+ * state as it was sent, and the rest of it is random base64url, without dots.
+ */
+export const BOOKING_STATE = ".booking";
+
+/** `booking`: also ask to make and delete events, for booking links (Allow access on My settings). */
+export function authUrl(opts: { origin: string; state: string; domain: string | null; booking?: boolean }): string {
   const q = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
     redirect_uri: redirectUri(opts.origin),
     response_type: "code",
-    scope: `openid email profile ${CALENDAR_SCOPE}`,
+    scope: `openid email profile ${CALENDAR_SCOPE}${opts.booking ? ` ${EVENTS_SCOPE}` : ""}`,
     // A refresh token, so calendars keep syncing after the person leaves.
     access_type: "offline",
     prompt: "consent",
@@ -74,6 +99,7 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
     throw new GoogleError(
       json.error === "invalid_grant" ? "Google access expired or was revoked" : `Google sign-in failed (${json.error ?? res.status})`,
       json.error === "invalid_grant",
+      res.status,
     );
   }
   return json;
@@ -89,6 +115,8 @@ export type SignedIn = {
   /** When accessToken expires, in ms; null when Google didn't say. */
   expiresAt: number | null;
   calendarAccess: boolean;
+  /** They allowed booking links to make and delete events (calendar.events). */
+  bookingAccess: boolean;
 };
 
 export async function exchangeCode(code: string, origin: string): Promise<SignedIn> {
@@ -104,6 +132,7 @@ export async function exchangeCode(code: string, origin: string): Promise<Signed
     hd?: string;
   };
   if (!claims.email || !claims.email_verified) throw new GoogleError("That Google account has no verified email");
+  const scopes = (t.scope ?? "").split(" ");
   return {
     sub: claims.sub,
     email: claims.email.toLowerCase(),
@@ -113,7 +142,10 @@ export async function exchangeCode(code: string, origin: string): Promise<Signed
     accessToken: t.access_token,
     expiresAt: expiryOf(t),
     // People can untick calendar access on Google's consent screen.
-    calendarAccess: (t.scope ?? "").split(" ").includes(CALENDAR_SCOPE),
+    calendarAccess: scopes.includes(CALENDAR_SCOPE),
+    // Granted once, it comes back with every later sign-in (include_granted_scopes)
+    // until they untick it or remove the app.
+    bookingAccess: scopes.includes(EVENTS_SCOPE),
   };
 }
 
@@ -201,43 +233,67 @@ export async function revoke(token: string): Promise<void> {
   }).catch(() => {});
 }
 
-async function api<T>(token: string, path: string, init?: RequestInit): Promise<T> {
+/** A Calendar API request that Google answered with a success; anything else throws a GoogleError. */
+async function request(token: string, path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...init?.headers },
     cache: "no-store",
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (res.status === 401) throw new GoogleError("Google access expired or was revoked", true);
+  if (res.status === 401) throw new GoogleError("Google access expired or was revoked", true, 401);
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as GoogleErrorBody | null;
-    throw new GoogleError(explain(res.status, body));
+    const reasons = reasonsOf(body);
+    throw new GoogleError(
+      explain(res.status, body),
+      false,
+      res.status,
+      reasons.some((r) => RATE_LIMITS.includes(r)),
+      res.status === 403 && reasons.some((r) => MISSING_PERMISSION.includes(r)),
+    );
   }
-  return (await res.json()) as T;
+  return res;
+}
+
+/** A Calendar API request, and Google's JSON answer. */
+async function api<T>(token: string, path: string, init?: RequestInit): Promise<T> {
+  return (await (await request(token, path, init)).json()) as T;
 }
 
 type GoogleErrorBody = {
   error?: { status?: string; errors?: { reason?: string }[]; details?: { reason?: string }[] };
 };
 
+/** Google's machine-readable reasons for an error. */
+function reasonsOf(body: GoogleErrorBody | null): string[] {
+  return [
+    body?.error?.status,
+    ...(body?.error?.errors ?? []).map((e) => e.reason),
+    ...(body?.error?.details ?? []).map((d) => d.reason),
+  ].filter((r): r is string => !!r);
+}
+
+/** The reasons Google gives for too many requests, rather than a refusal. */
+const RATE_LIMITS = ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "RESOURCE_EXHAUSTED"];
+
+/** The reasons Google gives when the token lacks a permission (a scope) the request needs. */
+const MISSING_PERMISSION = ["insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"];
+
 /**
  * A message that says what to do. Built from Google's machine-readable
  * reason only: its free-text message can name the calendar.
  */
 export function explain(status: number, body: GoogleErrorBody | null): string {
-  const reasons = [
-    body?.error?.status,
-    ...(body?.error?.errors ?? []).map((e) => e.reason),
-    ...(body?.error?.details ?? []).map((d) => d.reason),
-  ].filter(Boolean);
+  const reasons = reasonsOf(body);
   const has = (...r: string[]) => r.some((x) => reasons.includes(x));
   if (has("accessNotConfigured", "SERVICE_DISABLED")) {
     return "The Google Calendar API isn't enabled for this app's Google Cloud project. An admin has to enable it in Google Cloud Console (APIs & Services → Library → Google Calendar API)";
   }
-  if (has("insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT")) {
+  if (has(...MISSING_PERMISSION)) {
     return "Calendar access wasn't granted. Sign in again and allow “See your calendars”";
   }
-  if (has("rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "RESOURCE_EXHAUSTED")) {
+  if (has(...RATE_LIMITS)) {
     return "Google's rate limit was hit; it'll retry on the next sync";
   }
   if (status === 404) return "Calendar not found: it may no longer be shared with this account";
@@ -522,10 +578,19 @@ function characterReference(written: string, name: string): string {
   return Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : written;
 }
 
-/** Busy times, with titles and details, from a calendar whose events can be read. Attendee lists are never requested. */
-export async function eventBusy(token: string, calendarId: string, from: Date, to: Date, timezone: string): Promise<Busy[]> {
+/** A calendar read in full: its busy times, and the id of every event it returned, busy or not. */
+export type EventRead = { busy: Busy[]; eventIds: Set<string> };
+
+/**
+ * Busy times, with titles and details, from a calendar whose events can be
+ * read, and the ids of all the events read: a booking's event missing from
+ * them may have been deleted (see cancelBookingsGone in sync.ts). Attendee
+ * lists are never requested.
+ */
+export async function eventBusy(token: string, calendarId: string, from: Date, to: Date, timezone: string): Promise<EventRead> {
   type Page = { items?: GoogleEvent[]; nextPageToken?: string };
   const out: Busy[] = [];
+  const eventIds = new Set<string>();
   let pageToken: string | undefined;
   do {
     const q = new URLSearchParams({
@@ -539,12 +604,13 @@ export async function eventBusy(token: string, calendarId: string, from: Date, t
     if (pageToken) q.set("pageToken", pageToken);
     const page = await api<Page>(token, `/calendars/${encodeURIComponent(calendarId)}/events?${q}`);
     for (const e of page.items ?? []) {
+      if (e.id) eventIds.add(e.id);
       const b = busyFromEvent(e, timezone);
       if (b) out.push(b);
     }
     pageToken = page.nextPageToken;
   } while (pageToken);
-  return out;
+  return { busy: out, eventIds };
 }
 
 /** Busy times from a calendar shared as free/busy only. */
@@ -577,4 +643,89 @@ async function freeBusyRange(token: string, calendarId: string, from: Date, to: 
     throw new GoogleError(cal.errors[0].reason === "notFound" ? "Calendar not found: it may no longer be shared with this account" : "Google couldn't read this calendar's free/busy");
   }
   return (cal?.busy ?? []).map((b) => ({ start: Date.parse(b.start), end: Date.parse(b.end) }));
+}
+
+/** A booked meeting's event, as insertEvent makes it. */
+export type EventToMake = {
+  /**
+   * The event's own id, chosen by the app, so it can delete the event even
+   * when the insert never answered. Google takes a–v and 0–9, 5 to 1024 of them.
+   */
+  id: string;
+  /** Plain text. */
+  summary: string;
+  /** HTML. */
+  description: string;
+  start: number;
+  end: number;
+  /** The zone Google shows it in: the host's. */
+  timeZone: string;
+  /** Its only guest. */
+  guest: { email: string; displayName: string };
+  /** For a Google Meet link: the id Google makes it under, one per event. Null for none. */
+  meetRequestId: string | null;
+};
+
+/**
+ * Make an event, under the id given, on the signed-in person's primary
+ * calendar, and have Google send its guest an invitation (sendUpdates=all).
+ * Needs calendar.events. Returns the event's id, and its organizer's address:
+ * the calendar's id.
+ */
+export async function insertEvent(token: string, event: EventToMake): Promise<{ id: string; organizer: string | null }> {
+  const q = new URLSearchParams({ sendUpdates: "all" });
+  // Google adds a Meet link only for a client that says it reads them back.
+  if (event.meetRequestId) q.set("conferenceDataVersion", "1");
+  const made = await api<{ id?: string; organizer?: { email?: string } }>(token, `/calendars/primary/events?${q}`, {
+    method: "POST",
+    body: JSON.stringify({
+      id: event.id,
+      summary: event.summary,
+      description: event.description,
+      start: { dateTime: new Date(event.start).toISOString(), timeZone: event.timeZone },
+      end: { dateTime: new Date(event.end).toISOString(), timeZone: event.timeZone },
+      attendees: [event.guest],
+      ...(event.meetRequestId
+        ? { conferenceData: { createRequest: { requestId: event.meetRequestId, conferenceSolutionKey: { type: "hangoutsMeet" } } } }
+        : {}),
+    }),
+  });
+  if (!made.id) throw new GoogleError("Google didn't say which event it made");
+  return { id: made.id, organizer: made.organizer?.email ?? null };
+}
+
+/**
+ * Delete an event, and have Google tell its guests (sendUpdates=all). Needs
+ * calendar.events. One that's gone already (404, 410) counts as deleted.
+ */
+export async function deleteEvent(token: string, calendarId: string, eventId: string): Promise<void> {
+  try {
+    const res = await request(token, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`, {
+      method: "DELETE",
+    });
+    // Google answers 204, with no body to read.
+    await res.body?.cancel().catch(() => {});
+  } catch (err) {
+    if (err instanceof GoogleError && (err.status === 404 || err.status === 410)) return;
+    throw err;
+  }
+}
+
+/**
+ * Whether an event was deleted: "gone" when Google says so (404, 410, or the
+ * event with status cancelled), "there" when it has the event in any other
+ * state, wherever it was moved. Asks for its status and nothing else. Any
+ * other answer throws, as does a timeout or no connection.
+ */
+export async function eventStatus(token: string, calendarId: string, eventId: string): Promise<"gone" | "there"> {
+  try {
+    const event = await api<{ status?: string }>(
+      token,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?fields=status`,
+    );
+    return event.status === "cancelled" ? "gone" : "there";
+  } catch (err) {
+    if (err instanceof GoogleError && (err.status === 404 || err.status === 410)) return "gone";
+    throw err;
+  }
 }

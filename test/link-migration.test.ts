@@ -172,7 +172,8 @@ describe("a database made by v1.2.0 (criterion 1)", () => {
       for (const name of added) expect(row[name], `${row.calendar_id}.${name}`).toBeNull();
     });
     expect(conn.prepare("SELECT * FROM busy ORDER BY rowid").all()).toEqual(before.busy);
-    expect(conn.prepare("SELECT * FROM users ORDER BY rowid").all()).toEqual(before.users);
+    // Booking links part 2 (criterion 2) adds users.booking_access: 0 for everyone already here.
+    expect(conn.prepare("SELECT * FROM users ORDER BY rowid").all()).toEqual(before.users.map((u) => ({ ...u, booking_access: 0 })));
 
     // And the app reads them as before.
     expect(db.listCalendars("ahmet-yilmaz").map((c) => [c.calendar_id, c.kind, c.label, c.included])).toEqual([

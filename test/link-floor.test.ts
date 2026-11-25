@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeGoogle, type FakeGoogle } from "./google-fake";
+import { fakeGoogle, type FakeGoogle } from "./google-token-fake";
 import { calendarServer, calendarText, captureConsole, utcDay, vevent, type CalendarServer, type Handler } from "./link-helpers";
 
 // Sync every minute, criterion 5: a round (the scheduler's, or the main page's

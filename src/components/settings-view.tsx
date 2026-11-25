@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PRESET_COLORS, colorStyle, normalizeColor } from "@/lib/colors";
 import { offsetLabel } from "@/lib/time";
-import type { MyCalendar, MySettings, Zone } from "@/lib/types";
+import type { MyBookingLinks, MyCalendar, MySettings, Zone } from "@/lib/types";
+import { BookingLinks } from "./booking-links";
 import { useNow } from "./hooks";
 import { Avatar, Button, Input, Select, cn } from "./ui";
 
@@ -24,6 +25,7 @@ export function SettingsView({
   allZones,
   demo,
   serverNow,
+  booking,
 }: {
   initial: MySettings;
   teams: string[];
@@ -32,6 +34,17 @@ export function SettingsView({
   demo: boolean;
   /** The server's clock when the page was rendered, so the first render matches. */
   serverNow: number;
+  /**
+   * Booking links, while this server takes them (BOOKING_LINKS=on). `access`:
+   * how Allow access went, when it just sent them back here (?access=…).
+   */
+  booking: {
+    initial: MyBookingLinks;
+    hours: { startMin: number; endMin: number };
+    horizonDays: number;
+    base: string | null;
+    access: string | null;
+  } | null;
 }) {
   const router = useRouter();
   const now = useNow(serverNow);
@@ -421,11 +434,14 @@ export function SettingsView({
           )}
         </div>
 
+        {booking && <BookingLinks {...booking} zone={me.timezone} />}
+
         <section className="mt-4 rounded-2xl border border-danger/30 p-5">
           <h2 className="text-sm font-semibold text-fg">Remove me</h2>
           <p className="mt-1 font-body text-xs text-fg-2">
-            Takes you off the calendar, deletes your calendars and busy times here, and gives Google access back. You
-            can sign in again any time.
+            {booking
+              ? "Takes you off the calendar, deletes your calendars, busy times and booking links here, and gives Google access back. Meetings already booked stay in your Google Calendar. You can sign in again any time."
+              : "Takes you off the calendar, deletes your calendars and busy times here, and gives Google access back. You can sign in again any time."}
           </p>
           {confirmDelete ? (
             <div className="mt-3 flex gap-2">

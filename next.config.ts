@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   // Self-contained server bundle for the Docker image.
   output: "standalone",
   poweredByHeader: false,
+  // The dev server (the demo) logs every request's address, and a booking's
+  // cancel link is a secret: leave those out.
+  logging: { incomingRequests: { ignore: [/^\/(api\/)?book\/cancel\//] } },
   // Browser hardening for every response, which matters most once the app is
   // reachable from the internet (EXPOSURE=exposed). HSTS only takes effect
   // over https.

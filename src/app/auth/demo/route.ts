@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getUser } from "@/lib/server/db";
+import { getUser, setBookingAccess } from "@/lib/server/db";
 import { SESSION_COOKIE, cookieOptions, isDemo, sessionValue } from "@/lib/server/secrets";
 import { appUrl } from "@/lib/server/viewer";
 
@@ -8,6 +8,9 @@ export function GET(request: NextRequest) {
   const user = getUser(request.nextUrl.searchParams.get("as") ?? "");
   // Made-up people only, never someone who signed in with Google.
   if (!isDemo() || !user || user.google_sub) return NextResponse.redirect(appUrl(request, "/"));
+  // There's no Google to ask in the demo: everyone in it may take bookings,
+  // as after Allow access.
+  setBookingAccess(user.id, true);
   const res = NextResponse.redirect(appUrl(request, "/settings"));
   const session = sessionValue(user);
   res.cookies.set(SESSION_COOKIE, session.value, cookieOptions(session.maxAge));

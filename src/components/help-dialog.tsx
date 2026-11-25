@@ -23,6 +23,12 @@ const STEPS = [
   },
 ];
 
+/** While booking links are on (BOOKING_LINKS=on). */
+const BOOKING_STEP = {
+  title: "Let people book a time with you",
+  body: "Booking links live on My settings; once you're signed in, “Booking links” under “Find a time” opens them. Send one to anyone: they pick one of your free times and book it, without signing in.",
+};
+
 const KEYS: [string, string][] = [
   ["T", "Today"],
   ["D / W / M", "Day, week, month"],
@@ -33,8 +39,10 @@ const KEYS: [string, string][] = [
   ["?", "This help"],
 ];
 
-export function HelpDialog({ onClose }: { onClose: () => void }) {
+/** `bookingLinks`: this server takes booking links (BOOKING_LINKS=on), so they get a step. */
+export function HelpDialog({ onClose, bookingLinks = false }: { onClose: () => void; bookingLinks?: boolean }) {
   const close = useRef<HTMLButtonElement>(null);
+  const steps = bookingLinks ? [...STEPS, BOOKING_STEP] : STEPS;
 
   useEffect(() => {
     close.current?.focus();
@@ -74,7 +82,7 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <ol className="mt-5 flex flex-col gap-4">
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <li key={s.title} className="flex gap-3">
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-container text-xs font-semibold text-on-accent-container">
                 {i + 1}

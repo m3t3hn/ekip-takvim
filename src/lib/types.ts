@@ -178,3 +178,114 @@ export type EventInfo = {
   /** The event in Google Calendar. */
   htmlLink: string | null;
 };
+
+/** Why a Google sign-in sent the person back without signing them in. */
+export type SignInFailure = "unavailable" | "cancelled" | "expired" | "domain" | "failed";
+
+/**
+ * How Allow access on My settings ended, as the sign-in sends the host back
+ * there (/settings?access=…#booking): the permission given, the box left
+ * unticked on Google's screen, or one of sign-in's failures, cancelled included.
+ */
+export type AllowAccessResult = "granted" | "missing" | SignInFailure;
+
+/**
+ * What a host sets on a booking link (POST and PUT /api/me/booking-links).
+ * Days and hours are on the host's clock: the zone on their settings page.
+ */
+export type BookingLinkFields = {
+  title: string;
+  description: string;
+  /** 15, 30, 45, 60, 90 or 120. */
+  durationMin: number;
+  /** The weekdays it offers, 0 = Sunday. */
+  days: number[];
+  /** The daily window, in minutes after midnight (multiples of 15, up to 1440). */
+  startMin: number;
+  endMin: number;
+  /** Kept free before and after each booking. */
+  bufferMin: number;
+  /** How long before a time it can be booked at the latest. */
+  noticeMin: number;
+  /** How many days, today included, it offers times for. */
+  aheadDays: number;
+  /** Bookings on the link per day; null for no cap. */
+  maxPerDay: number | null;
+  /** Whether the booking's event gets a Google Meet link. */
+  meet: boolean;
+};
+
+/** One of the signed-in person's booking links. Only ever sent to its owner. */
+export type MyBookingLink = BookingLinkFields & {
+  id: string;
+  active: boolean;
+  /** "/book/<id>": anyone with it can book a time. */
+  path: string;
+};
+
+/** A booking someone made with the signed-in person. Only ever sent to that person. */
+export type UpcomingBooking = {
+  id: string;
+  /** The link's title when it was booked. */
+  title: string;
+  start: number;
+  end: number;
+  guestName: string;
+  guestEmail: string;
+  note: string | null;
+};
+
+/** The host API's answer (GET /api/me/booking-links and the changes to it). */
+export type MyBookingLinks = {
+  /** Whether they allowed booked meetings in their Google Calendar: without it, their links offer no times. */
+  bookingAccess: boolean;
+  links: MyBookingLink[];
+  /** Bookings that haven't ended or been cancelled, soonest first. */
+  upcoming: UpcomingBooking[];
+};
+
+/** What a visitor sees of a booking link (GET /api/book/[id]): nothing else about the host. */
+export type BookingPageInfo = {
+  title: string;
+  description: string;
+  durationMin: number;
+  hostName: string;
+  /** Whether a booking's event gets a Google Meet link: the meeting is a Meet call. */
+  meet: boolean;
+  /** The free times, ascending, in epoch ms. */
+  slots: { start: number; end: number }[];
+  /**
+   * The days the link offers with no time free, each as the first time it
+   * would have offered that day (epoch ms), ascending. Empty when there's no
+   * free time at all.
+   */
+  fullDays: number[];
+};
+
+/** A booking just made (POST /api/book/[id]). */
+export type BookingMade = {
+  start: number;
+  end: number;
+  title: string;
+  hostName: string;
+  /** The booking's cancel link, /book/cancel/<token>: its confirmation's own address. */
+  cancelUrl: string;
+  /** Google is sending the visitor an invitation: always, outside the demo. */
+  invited: boolean;
+};
+
+/** A booking as its cancel link shows it (/api/book/cancel/[token]). */
+export type BookingToCancel = {
+  title: string;
+  start: number;
+  end: number;
+  hostName: string;
+  cancelled: boolean;
+  /** Whether its meeting has ended: it took place, and can't be cancelled. */
+  ended: boolean;
+  /**
+   * Once it's cancelled or has ended: its link's page, "/book/<id>", to book
+   * another time, while that link is on and its host is still here. Else null.
+   */
+  bookAgain: string | null;
+};

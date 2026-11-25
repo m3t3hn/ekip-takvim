@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
-import { fakeGoogle, held, plans, type FakeGoogle } from "./google-fake";
+import { fakeGoogle, held, plans, type FakeGoogle } from "./google-token-fake";
 import { captureConsole } from "./link-helpers";
 
 // Sync every minute, criterion 1: with no refresh_minutes in the config (no

@@ -18,6 +18,9 @@ Open **Google Auth Platform**, called *OAuth consent screen* in older versions o
    - `.../auth/userinfo.email`
    - `.../auth/userinfo.profile`
    - `.../auth/calendar.readonly`
+   - `.../auth/calendar.events`, only if you turn on [booking links](user-guide.md#booking-links) (`BOOKING_LINKS=on`). It lets the app add events to a calendar and delete them. Nobody is asked for it at sign-in: each host grants it with **Allow access** on *My settings*, and the app then uses it only to add the meetings booked with them to their primary calendar, and to delete those when a booking is cancelled.
+
+   With an *Internal* client, the events scope changes nothing else. With an *External* one, it's another sensitive scope, like `calendar.readonly` ([below](#personal-google-accounts)).
 
 ## 3. Create the OAuth client
 
@@ -51,9 +54,11 @@ Only Google Workspace accounts on that domain can sign in. An Internal client al
 When someone signs in, Google asks them to allow:
 
 - their name, email address and profile picture;
-- *See and download any calendar you can access using your Google Calendar*. That's read-only: the app never creates, changes or deletes events.
+- *See and download any calendar you can access using your Google Calendar*. That's read-only.
 
 If someone unticks the calendar permission, they're still signed in, but nothing of theirs counts. **My settings** then asks them to sign in again and allow it.
+
+With booking links on, **Allow access** on *My settings* asks once more, adding *View and edit events on all your calendars*. The app uses it only for the meetings booked with that person: it adds each one to their primary calendar, with the visitor invited, and deletes it when the booking is cancelled. It never changes or deletes any other event. Someone who unticks it, or never allows it, can still make booking links, but their links offer no times until they allow it. Later sign-ins keep it, until they remove the app in their Google account.
 
 People add their other jobs' calendars by sharing them with their company account; see [Adding yourself](user-guide.md#adding-yourself).
 
@@ -62,7 +67,7 @@ People add their other jobs' calendars by sharing them with their company accoun
 Without Google Workspace, the client has to be **External**, and two limits apply:
 
 - **While the app's status is *Testing*:** only the test users you list can sign in, up to 100 of them. Google also ends their access after 7 days, so they show up as *Needs to sign in* every week.
-- **To publish the app** (status *In production*): the Calendar permission requires Google to verify the app first. That takes time and a public privacy policy.
+- **To publish the app** (status *In production*): the Calendar permissions, `calendar.readonly` and, with booking links, `calendar.events`, require Google to verify the app first. That takes time and a public privacy policy.
 
 For a team, a Google Workspace with an Internal client is by far the simplest.
 
