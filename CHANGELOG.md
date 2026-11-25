@@ -4,6 +4,8 @@ Notable changes to Ekip Takvim. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-25
+
 ### Added
 - **Calendar links.** A calendar that isn't on Google, such as Outlook, iCloud, Proton Calendar or Nextcloud, can count as busy time through its secret iCal (ICS) address, added on *My settings*. The server reads it beside the Google calendars. Only the server keeps the link, encrypted; its owner sees its host, and colleagues see its label only. Each person can add up to 10. `CALENDAR_LINKS=on` (the default) takes addresses on the public internet, `private` also takes private and local ones such as a Nextcloud on your own network, and `off` turns links off. See [calendar links](docs/user-guide.md#calendar-links).
 
@@ -62,7 +64,8 @@ First public release.
 - **Demo mode** with made-up people.
 - **Backup and restore scripts.**
 
-[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.0.0...v1.1.0
