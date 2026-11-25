@@ -4,6 +4,8 @@ Notable changes to Ekip Takvim. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-25
+
 ### Added
 - **Booking links**, off by default (`BOOKING_LINKS=on`). Anyone on the team can make links on *My settings* where people outside it, such as a client or a candidate, book a meeting in their free time, much like Google Calendar's appointment schedules. A link has a title, a description, a length, days and hours, a break between meetings, a minimum notice, how many days ahead it offers, an optional limit per day and an optional Google Meet link; each person can have up to 10. Visitors see only the free times, on their own clock, with full days marked. Each booking becomes an event in the host's Google Calendar, Google invites the visitor, and the confirmation page's address is the booking's cancel link. Each host first allows the app to add those events with **Allow access**, which asks Google for the `calendar.events` scope: add it to your OAuth client. Booking pages are public: behind a VPN or an access proxy, open only `/book/`, `/api/book/` and `/_next/static/` to visitors ([booking pages](docs/access-control.md#booking-pages)). See [booking links](docs/user-guide.md#booking-links), [how they differ from Google's appointment schedules](docs/user-guide.md#how-booking-links-differ-from-googles-appointment-schedules) and [what visitors see](docs/privacy-and-security.md#booking-links).
 
@@ -67,7 +69,8 @@ First public release.
 - **Demo mode** with made-up people.
 - **Backup and restore scripts.**
 
-[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/m3t3hn/ekip-takvim/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/m3t3hn/ekip-takvim/compare/v1.1.0...v1.2.0
